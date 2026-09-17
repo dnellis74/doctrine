@@ -1,7 +1,6 @@
-import { handleDecide } from '../server/decide';
+import { handleDecide } from './lib/decide';
 
 function apiKeyFromEnv(): string | undefined {
-  // Vercel: jev_api_key (as configured). Also accept common variants.
   return (
     process.env.jev_api_key ||
     process.env.JEV_API_KEY ||
@@ -22,7 +21,6 @@ async function handle(request: Request): Promise<Response> {
     });
   }
   if (request.method === 'GET') {
-    // Lightweight probe for debugging prod (does not call Jev).
     return Response.json(
       {
         ok: true,
@@ -51,12 +49,7 @@ async function handle(request: Request): Promise<Response> {
   });
 }
 
-/** Web-standard default export (current Vercel Node docs). */
+/** Web-standard handler — keep shared code under api/ so Vercel bundles it. */
 export default {
   fetch: handle,
 };
-
-/** Named method export — some Vite/Vercel setups prefer this. */
-export const POST = handle;
-export const GET = handle;
-export const OPTIONS = handle;
