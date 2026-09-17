@@ -47,7 +47,7 @@ export class Arena extends Phaser.Scene {
   private wasPlayerReloading = false;
   private eventLog = new EventLog();
   private debug!: DebugOverlay;
-  private lastDecisionAt = 0;
+  private currentState: ReturnType<typeof describe> | null = null;
 
   constructor() {
     super('Arena');
@@ -59,7 +59,7 @@ export class Arena extends Phaser.Scene {
     this.shells = [];
     this.elapsed = 0;
     this.eventLog.clear();
-    this.lastDecisionAt = 0;
+    this.currentState = null;
   }
 
   create(): void {
@@ -105,6 +105,20 @@ export class Arena extends Phaser.Scene {
     this.debug.onToggle((open) => {
       if (open) this.touch.reset();
     });
+
+    this.brain.onDecision((info) => {
+      this.debug.recordDecision({
+        at: this.elapsed,
+        state: info.state,
+        answers: info.answers,
+        latencyMs: info.latencyMs,
+        model: info.model,
+        offline: info.offline,
+      });
+      if (info.inputTokens) this.debug.addUsage(info.inputTokens);
+    });
+
+    void this.brain.probeAtStartup(this.buildState());
 
     this.input.addPointer(2);
 
@@ -178,7 +192,10 @@ export class Arena extends Phaser.Scene {
     this.elapsed += dt;
 
     this.applyPlayerInput();
-    this.brain.tick(this.elapsed, this.enemy, this.player);
+    this.refreshState();
+    if (this.currentState) {
+      this.brain.tick(this.elapsed, this.enemy, this.player, this.currentState);
+    }
     this.brain.apply(this.enemy, this.player, this.elapsed);
 
     if (this.brain.shouldFire(this.enemy, this.player)) {
@@ -194,7 +211,6 @@ export class Arena extends Phaser.Scene {
     this.wasPlayerReloading = this.player.reloading;
 
     this.updateShells(dt);
-    this.updatePerception();
     this.updateHud();
     this.drawSticks();
 
@@ -203,17 +219,8 @@ export class Arena extends Phaser.Scene {
     }
   }
 
-  private updatePerception(): void {
-    this.eventLog.observe({
-      selfX: this.enemy.x,
-      selfY: this.enemy.y,
-      playerX: this.player.x,
-      playerY: this.player.y,
-      playerVx: this.player.vx,
-      playerVy: this.player.vy,
-    });
-
-    const state = describe({
+  private buildState() {
+    return describe({
       doctrine: doctrineById(this.doctrineId).text,
       self: {
         x: this.enemy.x,
@@ -233,20 +240,19 @@ export class Arena extends Phaser.Scene {
       },
       recent_player_actions: this.eventLog.list(),
     });
+  }
 
-    this.debug.setState(state);
-
-    if (this.brain.debug.requestCount !== this.lastDecisionAt) {
-      this.lastDecisionAt = this.brain.debug.requestCount;
-      this.debug.recordDecision({
-        at: this.elapsed,
-        state,
-        answers: this.brain.debug.lastAnswers,
-        latencyMs: this.brain.debug.latencyMs,
-        model: this.brain.debug.model ?? 'local',
-        offline: this.brain.debug.offline,
-      });
-    }
+  private refreshState(): void {
+    this.eventLog.observe({
+      selfX: this.enemy.x,
+      selfY: this.enemy.y,
+      playerX: this.player.x,
+      playerY: this.player.y,
+      playerVx: this.player.vx,
+      playerVy: this.player.vy,
+    });
+    this.currentState = this.buildState();
+    this.debug.setState(this.currentState);
   }
 
   private applyPlayerInput(): void {
@@ -376,11 +382,16 @@ export class Arena extends Phaser.Scene {
     const conf = Math.round(
       (this.brain.debug.lastAnswers?.player_intent.confidence ?? 0) * 100,
     );
+    const latencyLabel = this.brain.debug.offline
+      ? 'JEV OFFLINE'
+      : this.brain.debug.latencyMs != null
+        ? `JEV ${Math.round(this.brain.debug.latencyMs)}MS`
+        : 'JEV …';
     drawBasicHud(this.hudGfx, this.hudText, {
       playerHp: this.player.health,
       enemyHp: this.enemy.health,
       intentLabel: `ENEMY READS YOU AS: ${intent.toUpperCase()} ${conf}%`,
-      latencyLabel: 'JEV OFFLINE',
+      latencyLabel,
       width: WORLD_W,
     });
   }

@@ -9,15 +9,17 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173/** in Chrome/Firefox/Safari.
+Open **http://localhost:5173/**
 
 Controls: **WASD** / arrows drive (forward / turn / reverse), mouse aims, click fires. `` ` `` toggles the debug overlay.
+
+Local server reads `TYPESAFE_API_KEY` from `.env.local`. Vercel uses `jev_api_key`.
 
 ## Milestones
 
 1. Playable skeleton (local AI) — done
-2. Symbolic state + debug overlay — current
-3. Jev decision loop
+2. Symbolic state + debug overlay — done
+3. Jev decision loop — current
 4. Vector look
 5. Synth audio
 6. Vercel deploy

@@ -1,5 +1,9 @@
 import { handleDecide } from '../server/decide';
 
+function apiKeyFromEnv(): string | undefined {
+  return process.env.jev_api_key || process.env.TYPESAFE_API_KEY;
+}
+
 export default {
   async fetch(request: Request): Promise<Response> {
     if (request.method === 'OPTIONS') {
@@ -22,7 +26,7 @@ export default {
     }
 
     const result = await handleDecide(raw, {
-      apiKey: process.env.TYPESAFE_API_KEY,
+      apiKey: apiKeyFromEnv(),
       isDev: false,
     });
 

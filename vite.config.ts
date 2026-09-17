@@ -63,7 +63,7 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiKey = env.TYPESAFE_API_KEY;
+  const apiKey = env.TYPESAFE_API_KEY || env.jev_api_key;
 
   return {
     plugins: [decideApiPlugin(apiKey)],
@@ -75,6 +75,9 @@ export default defineConfig(({ mode }) => {
     },
     optimizeDeps: {
       exclude: ['@typesafe-ai/sdk'],
+    },
+    ssr: {
+      external: ['@typesafe-ai/sdk'],
     },
   };
 });

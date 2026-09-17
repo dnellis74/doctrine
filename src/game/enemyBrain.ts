@@ -5,6 +5,8 @@ import { nearestCoverSpot, hasLineOfSight, COVER_LAYOUT } from './arena';
 import type { Tank } from './tank';
 import type { DoctrineId } from './constants';
 import { executeManeuver } from './maneuvers';
+import type { SymbolicState } from './describe';
+import { postDecide } from './decideClient';
 
 export interface EnemyBrainDebug {
   offline: boolean;
@@ -14,10 +16,21 @@ export interface EnemyBrainDebug {
   sampleManeuver: boolean;
   lastAnswers: BrainAnswers | null;
   requestCount: number;
+  consecutiveFailures: number;
 }
 
+type DecisionListener = (info: {
+  state: SymbolicState;
+  answers: BrainAnswers;
+  latencyMs: number | null;
+  model: string | null;
+  offline: boolean;
+  inputTokens?: number;
+}) => void;
+
 /**
- * Milestone 1: local brain only. Jev loop arrives in Milestone 3.
+ * Cadence 350ms, one in-flight request, 1200ms staleness drop,
+ * confidence gate, 600ms min commit, fallback after 3 failures.
  */
 export class EnemyBrain {
   maneuver: ManeuverId = 'hold';
@@ -26,47 +39,175 @@ export class EnemyBrain {
   private flankUntil = 0;
   private commitUntil = 0;
   private lastTick = 0;
+  private pending = false;
+  private offlineRetryAt = 0;
+  private probed = false;
+  private doctrineId: DoctrineId = 'cautious';
+  private listeners: DecisionListener[] = [];
+  private lastSelf: Tank | null = null;
+  private lastPlayer: Tank | null = null;
+  private lastState: SymbolicState | null = null;
+
   readonly debug: EnemyBrainDebug = {
-    offline: true,
+    offline: false,
     latencyMs: null,
     model: null,
     confidenceThreshold: 0.4,
     sampleManeuver: true,
     lastAnswers: null,
     requestCount: 0,
+    consecutiveFailures: 0,
   };
-
-  private doctrineId: DoctrineId = 'cautious';
 
   setDoctrine(id: DoctrineId): void {
     this.doctrineId = id;
   }
 
-  tick(now: number, self: Tank, player: Tank): void {
+  onDecision(cb: DecisionListener): void {
+    this.listeners.push(cb);
+  }
+
+  /** Startup reachability probe — local brain if decide is unreachable. */
+  async probeAtStartup(state: SymbolicState): Promise<void> {
+    if (this.probed) return;
+    this.probed = true;
+    const result = await postDecide(state);
+    if (!result.ok) {
+      this.enterOffline();
+      return;
+    }
+    this.onJevSuccess(result.answers, result.model, result.latencyMs, result.usage.input_tokens, state);
+  }
+
+  tick(now: number, self: Tank, player: Tank, state: SymbolicState): void {
+    this.lastSelf = self;
+    this.lastPlayer = player;
+    this.lastState = state;
+
     if (now - this.lastTick < 0.35) return;
     this.lastTick = now;
 
+    if (this.debug.offline) {
+      this.runLocal(self, player, state, now);
+      if (now >= this.offlineRetryAt && !this.pending) {
+        this.requestJev(state, now);
+      }
+      return;
+    }
+
+    if (this.pending) return;
+    this.requestJev(state, now);
+  }
+
+  private requestJev(state: SymbolicState, gameNow: number): void {
+    this.pending = true;
+    const wallStart = performance.now();
+
+    void postDecide(state).then((result) => {
+      this.pending = false;
+      const elapsedMs = performance.now() - wallStart;
+
+      if (elapsedMs > 1200) {
+        this.noteFailure(gameNow);
+        return;
+      }
+
+      if (!result.ok) {
+        this.noteFailure(gameNow);
+        return;
+      }
+
+      this.onJevSuccess(
+        result.answers,
+        result.model,
+        result.latencyMs,
+        result.usage.input_tokens,
+        state,
+        gameNow,
+      );
+    });
+  }
+
+  private noteFailure(gameNow: number): void {
+    this.debug.consecutiveFailures += 1;
+    if (this.debug.consecutiveFailures >= 3 || this.debug.offline) {
+      this.enterOffline();
+      this.offlineRetryAt = gameNow + 3;
+    }
+    if (this.lastSelf && this.lastPlayer && this.lastState) {
+      this.runLocal(this.lastSelf, this.lastPlayer, this.lastState, gameNow);
+    }
+  }
+
+  private onJevSuccess(
+    answers: BrainAnswers,
+    model: string,
+    latencyMs: number,
+    inputTokens: number | undefined,
+    state: SymbolicState,
+    gameNow = this.lastTick,
+  ): void {
+    this.debug.offline = false;
+    this.debug.consecutiveFailures = 0;
+    this.debug.latencyMs = latencyMs;
+    this.debug.model = model;
+    this.debug.lastAnswers = answers;
+    this.debug.requestCount += 1;
+    this.commitAnswers(answers, gameNow);
+    this.emit(state, answers, latencyMs, model, false, inputTokens);
+  }
+
+  private runLocal(
+    self: Tank,
+    player: Tank,
+    _state: SymbolicState,
+    gameNow: number,
+  ): void {
+    const answers = localBrain(this.viewFromTanks(self, player));
+    this.debug.lastAnswers = answers;
+    if (this.debug.offline) this.debug.model = 'local';
+    this.commitAnswers(answers, gameNow);
+  }
+
+  private viewFromTanks(self: Tank, player: Tank): LocalWorldView {
     const dist = Math.hypot(player.x - self.x, player.y - self.y);
     const los = hasLineOfSight(self.x, self.y, player.x, player.y);
-    const selfInCover = !hasLineOfSight(self.x, self.y, player.x, player.y);
-    const playerInCover = !los;
-
-    const view: LocalWorldView = {
+    return {
       doctrineId: this.doctrineId,
       selfHealth: self.health,
       playerHealth: player.health,
       distance: dist,
       lineOfSight: los,
-      selfInCover,
-      playerInCover,
+      selfInCover: !los,
+      playerInCover: !los,
       playerReloading: player.reloading,
       selfReloading: self.reloading,
     };
+  }
 
-    const answers = localBrain(view);
-    this.debug.lastAnswers = answers;
-    this.debug.requestCount += 1;
+  private enterOffline(): void {
+    const wasOnline = !this.debug.offline;
+    this.debug.offline = true;
+    this.debug.latencyMs = null;
+    this.debug.model = 'local';
+    this.offlineRetryAt = this.lastTick + 3;
+    if (
+      wasOnline &&
+      this.lastState &&
+      this.debug.lastAnswers
+    ) {
+      this.debug.requestCount += 1;
+      this.emit(
+        this.lastState,
+        this.debug.lastAnswers,
+        null,
+        'local',
+        true,
+      );
+    }
+  }
 
+  private commitAnswers(answers: BrainAnswers, now: number): void {
     const next = this.pickManeuver(answers);
     if (now >= this.commitUntil || this.maneuver === next) {
       if (this.maneuver !== next) {
@@ -78,9 +219,7 @@ export class EnemyBrain {
         }
       }
     }
-
     this.aggressionScore = answers.aggression.score;
-    self.speedMul = 0.75 + 0.15 * this.aggressionScore;
   }
 
   private pickManeuver(answers: BrainAnswers): ManeuverId {
@@ -99,7 +238,21 @@ export class EnemyBrain {
     return answers.maneuver.choice;
   }
 
+  private emit(
+    state: SymbolicState,
+    answers: BrainAnswers,
+    latencyMs: number | null,
+    model: string | null,
+    offline: boolean,
+    inputTokens?: number,
+  ): void {
+    for (const cb of this.listeners) {
+      cb({ state, answers, latencyMs, model, offline, inputTokens });
+    }
+  }
+
   apply(self: Tank, player: Tank, now: number): void {
+    self.speedMul = 0.75 + 0.15 * this.aggressionScore;
     const spot = nearestCoverSpot(self.x, self.y, player.x, player.y, COVER_LAYOUT);
     const cmd = executeManeuver(this.maneuver, {
       selfX: self.x,
@@ -113,7 +266,6 @@ export class EnemyBrain {
     });
     self.setMoveIntent(cmd.heading, cmd.throttle);
 
-    // Lead aim with small error
     const lead = 0.25 + Math.random() * 0.15;
     const aimX = player.x + player.vx * lead + (Math.random() - 0.5) * 40;
     const aimY = player.y + player.vy * lead + (Math.random() - 0.5) * 40;
@@ -121,7 +273,6 @@ export class EnemyBrain {
   }
 
   aimTolerance(): number {
-    // tighter when low aggression
     return (12 - this.aggressionScore * 3) * (Math.PI / 180);
   }
 
