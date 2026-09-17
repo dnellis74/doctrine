@@ -3,6 +3,13 @@ import { COLORS, HEALTH, WORLD_W } from '../game/constants';
 import { drawText } from './font';
 import { glowRect } from './vector';
 
+export interface SideStatus {
+  /** Current maneuver / strategy label, e.g. ADVANCE */
+  strategy: string;
+  /** Aggression label, e.g. PRESS or AGG 2 */
+  aggression: string;
+}
+
 export interface HudState {
   playerHp: number;
   enemyHp: number;
@@ -12,6 +19,10 @@ export interface HudState {
   intentLabel?: string;
   latencyLabel: string;
   muted: boolean;
+  /** Non-human YOU status */
+  playerStatus?: SideStatus | null;
+  /** Non-human ENEMY status */
+  enemyStatus?: SideStatus | null;
 }
 
 /** Hit target for the mute toggle (world/UI coords). */
@@ -32,6 +43,16 @@ export function drawHud(g: Phaser.GameObjects.Graphics, state: HudState): void {
   for (let i = 0; i < HEALTH; i++) {
     const alpha = i < state.playerHp ? 1 : 0.2;
     glowRect(g, pad + 48 + i * 20, y + 2, 14, 9, COLORS.player, alpha);
+  }
+
+  if (state.playerStatus) {
+    drawText(
+      g,
+      `${state.playerStatus.strategy}  ${state.playerStatus.aggression}`,
+      pad,
+      y + 28,
+      { size: 1.6, color: COLORS.player, alpha: 0.95 },
+    );
   }
 
   drawText(g, state.muted ? 'MUTED' : 'SOUND', HUD_MUTE_ZONE.x, HUD_MUTE_ZONE.y, {
@@ -73,4 +94,14 @@ export function drawHud(g: Phaser.GameObjects.Graphics, state: HudState): void {
     color: COLORS.enemy,
     align: 'right',
   });
+
+  if (state.enemyStatus) {
+    drawText(
+      g,
+      `${state.enemyStatus.strategy}  ${state.enemyStatus.aggression}`,
+      WORLD_W - pad,
+      y + 28,
+      { size: 1.6, color: COLORS.enemy, align: 'right', alpha: 0.95 },
+    );
+  }
 }

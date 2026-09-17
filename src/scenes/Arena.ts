@@ -673,6 +673,39 @@ export class Arena extends Phaser.Scene {
     return c.toUpperCase();
   }
 
+  private strategyLabel(maneuver: string): string {
+    if (maneuver === 'take_cover') return 'COVER';
+    return maneuver.toUpperCase();
+  }
+
+  private aggressionLabel(score: number): string {
+    const s = Math.max(0, Math.min(2, Math.round(score)));
+    if (s <= 0) return 'AVOID';
+    if (s === 1) return 'TRADE';
+    return 'PRESS';
+  }
+
+  private sideStatus(
+    control: ControllerId,
+    local: LocalEnemy | null,
+    jev: JevBrain | null,
+  ): { strategy: string; aggression: string } | null {
+    if (control === 'human') return null;
+    if (jev) {
+      return {
+        strategy: this.strategyLabel(jev.maneuver),
+        aggression: this.aggressionLabel(jev.aggressionScore),
+      };
+    }
+    if (local) {
+      return {
+        strategy: this.strategyLabel(local.maneuver),
+        aggression: this.aggressionLabel(local.aggressionScore),
+      };
+    }
+    return null;
+  }
+
   private jevLatency(jev: JevBrain | null): string | null {
     if (!jev) return null;
     if (jev.debug.offline) return 'OFFLINE';
@@ -710,6 +743,16 @@ export class Arena extends Phaser.Scene {
       intentLabel: intentLine,
       latencyLabel: parts.join('  ·  '),
       muted: this.muted,
+      playerStatus: this.sideStatus(
+        this.playerControl,
+        this.playerLocal,
+        this.playerJev,
+      ),
+      enemyStatus: this.sideStatus(
+        this.enemyControl,
+        this.enemyLocal,
+        this.enemyJev,
+      ),
     });
   }
 
