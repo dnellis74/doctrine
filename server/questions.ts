@@ -1,2 +1,2 @@
-/** Dev / layout shim — canonical questions live in api/lib. */
-export { questions } from '../api/lib/questions';
+/** Questions are defined inline in api/decide.ts for the Vercel bundle. */
+export {};

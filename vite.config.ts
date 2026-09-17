@@ -22,7 +22,7 @@ function decideApiPlugin(apiKey: string | undefined): Plugin {
         void (async () => {
           try {
             const body = await readBody(req);
-            const { handleDecide } = await server.ssrLoadModule('/server/decide.ts');
+            const { handleDecide } = await server.ssrLoadModule('/api/decide.ts');
             const result = await handleDecide(body, {
               apiKey,
               isDev: true,

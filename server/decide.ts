@@ -1,2 +1,2 @@
-/** Dev / layout shim — Vercel serves from api/lib, not this path. */
-export { handleDecide, type DecideResult, type DecideState } from '../api/lib/decide';
+/** Layout shim for Vite — implementation lives in api/decide.ts (single file for Vercel). */
+export { handleDecide, type DecideResult, type DecideState } from '../api/decide';
