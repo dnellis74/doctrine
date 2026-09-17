@@ -132,7 +132,7 @@ export class Guide extends Phaser.Scene {
 <p>Each decision tick, Jev answers three typed questions. Your prompt (<code>doctrine</code>) steers <strong>maneuver</strong> and <strong>aggression</strong>. Code aims and fires — Jev never picks those.</p>
 
 <h2>MANEUVER</h2>
-<p class="muted">Moves the tank. This is the main thing your prompt should talk about.</p>
+<p class="muted">Moves the tank. For <strong>Jev</strong>, the prompt is the only guide — all five choices are always available.</p>
 <table>
   <tr><th>Choice</th><th>Meaning</th></tr>
   <tr><td><code>advance</code></td><td>Close distance on the opponent</td></tr>
@@ -141,6 +141,7 @@ export class Guide extends Phaser.Scene {
   <tr><td><code>flank</code></td><td>Circle sideways around the opponent</td></tr>
   <tr><td><code>hold</code></td><td>Stay put</td></tr>
 </table>
+<p class="muted">Local presets (not Jev) still use distance heuristics — e.g. far prefers flank/advance; close avoids advance.</p>
 
 <h2>AGGRESSION</h2>
 <p class="muted">Score 0–2. Scales how hard the tank presses (speed / pressure).</p>

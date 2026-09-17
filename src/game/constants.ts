@@ -73,7 +73,7 @@ export const DOCTRINES: DoctrineDef[] = [
   {
     id: 'ambusher',
     label: 'Ambusher',
-    text: 'Waits in cover until the player comes close, then attacks. Falls back to cover after taking damage.',
+    text: 'At long range, flanks to close the angle. Waits in cover at medium range until the player is close, then attacks. Falls back to cover after taking damage.',
   },
 ];
 

@@ -1,5 +1,6 @@
 import type { DoctrineId } from './constants';
 import type { ManeuverId } from './maneuvers';
+import { clampManeuverForDistance } from './maneuverRules';
 
 export interface LocalWorldView {
   doctrineId: DoctrineId;
@@ -50,15 +51,20 @@ export function localBrain(view: LocalWorldView): BrainAnswers {
   switch (view.doctrineId) {
     case 'berserker': {
       aggression = 2;
-      maneuver = view.distance < 160 ? 'flank' : 'advance';
+      // Close: no advance — flank. Else prefer advance (legal at medium/far).
+      maneuver = view.distance < 180 ? 'flank' : 'advance';
       break;
     }
     case 'ambusher': {
       if (view.selfHealth <= 2 && !view.selfInCover) {
-        maneuver = 'take_cover';
+        maneuver = view.distance >= 450 ? 'flank' : 'take_cover';
         aggression = 0;
-      } else if (view.distance < 220 && view.lineOfSight) {
-        maneuver = 'advance';
+      } else if (view.distance >= 450) {
+        maneuver = 'flank';
+        aggression = 1;
+      } else if (view.distance < 180 && view.lineOfSight) {
+        // Close: press with flank, not advance
+        maneuver = 'flank';
         aggression = 2;
       } else if (!view.selfInCover) {
         maneuver = 'take_cover';
@@ -72,17 +78,23 @@ export function localBrain(view: LocalWorldView): BrainAnswers {
     case 'cautious':
     default: {
       if (view.selfHealth <= 2 && !view.selfInCover) {
-        maneuver = 'take_cover';
+        maneuver = view.distance >= 450 ? 'flank' : 'take_cover';
         aggression = 0;
       } else if (
         view.playerHealth <= 2 ||
         view.playerReloading ||
         (!view.playerInCover && view.lineOfSight)
       ) {
-        maneuver = view.distance > 280 ? 'advance' : view.playerInCover ? 'flank' : 'hold';
+        if (view.distance >= 450) {
+          maneuver = 'advance';
+        } else if (view.distance < 180) {
+          maneuver = view.playerInCover ? 'flank' : 'hold';
+        } else {
+          maneuver = view.playerInCover ? 'flank' : 'advance';
+        }
         aggression = 2;
       } else if (!view.selfInCover) {
-        maneuver = 'take_cover';
+        maneuver = view.distance >= 450 ? 'flank' : 'take_cover';
         aggression = 0;
       } else {
         maneuver = view.playerInCover ? 'flank' : 'hold';
@@ -91,6 +103,8 @@ export function localBrain(view: LocalWorldView): BrainAnswers {
       break;
     }
   }
+
+  maneuver = clampManeuverForDistance(maneuver, view.distance);
 
   const intent =
     view.distance < 200
