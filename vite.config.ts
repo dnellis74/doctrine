@@ -63,7 +63,7 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiKey = env.TYPESAFE_API_KEY || env.jev_api_key;
+  const apiKey = env.TYPESAFE_API_KEY || env.jev_api_key || env.JEV_API_KEY;
 
   return {
     plugins: [decideApiPlugin(apiKey)],

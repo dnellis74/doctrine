@@ -103,7 +103,14 @@ export async function postDecide(
     });
 
     if (!res.ok) {
-      return { ok: false, error: 'decide failed', status: res.status };
+      let detail = 'decide failed';
+      try {
+        const errBody = (await res.json()) as { error?: string };
+        if (errBody.error) detail = errBody.error;
+      } catch {
+        /* ignore */
+      }
+      return { ok: false, error: detail, status: res.status };
     }
 
     const data = (await res.json()) as {

@@ -1,3 +1,11 @@
 {
-  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "functions": {
+    "api/decide.ts": {
+      "maxDuration": 10,
+      "memory": 256
+    }
+  }
 }

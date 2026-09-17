@@ -190,6 +190,7 @@ export class DebugOverlay {
       model: b?.model ?? (b?.offline ? 'local' : null),
       requestCount: b?.requestCount ?? 0,
       offline: b?.offline ?? true,
+      lastDecideError: b?.lastDecideError ?? null,
       confidenceThreshold: b?.confidenceThreshold ?? 0.4,
       pick: b?.sampleManeuver ? 'sample' : 'argmax',
       estimatedSpendUsd: Number(spend.toFixed(6)),

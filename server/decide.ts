@@ -44,6 +44,7 @@ function resolveApiKey(explicit?: string): string | undefined {
   return (
     explicit ||
     process.env.jev_api_key ||
+    process.env.JEV_API_KEY ||
     process.env.TYPESAFE_API_KEY ||
     undefined
   );
@@ -136,7 +137,7 @@ export async function handleDecide(
 
   const apiKey = resolveApiKey(opts.apiKey);
   if (!apiKey) {
-    return { status: 502, body: { error: 'decide unavailable' } };
+    return { status: 503, body: { error: 'missing api key' } };
   }
 
   const started = Date.now();

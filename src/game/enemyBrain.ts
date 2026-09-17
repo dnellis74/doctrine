@@ -17,6 +17,7 @@ export interface EnemyBrainDebug {
   lastAnswers: BrainAnswers | null;
   requestCount: number;
   consecutiveFailures: number;
+  lastDecideError: string | null;
 }
 
 type DecisionListener = (info: {
@@ -57,6 +58,7 @@ export class EnemyBrain {
     lastAnswers: null,
     requestCount: 0,
     consecutiveFailures: 0,
+    lastDecideError: null,
   };
 
   setDoctrine(id: DoctrineId): void {
@@ -73,9 +75,11 @@ export class EnemyBrain {
     this.probed = true;
     const result = await postDecide(state);
     if (!result.ok) {
+      this.debug.lastDecideError = `${result.status ?? 'net'}: ${result.error}`;
       this.enterOffline();
       return;
     }
+    this.debug.lastDecideError = null;
     this.onJevSuccess(result.answers, result.model, result.latencyMs, result.usage.input_tokens, state);
   }
 
@@ -108,15 +112,18 @@ export class EnemyBrain {
       const elapsedMs = performance.now() - wallStart;
 
       if (elapsedMs > 1200) {
+        this.debug.lastDecideError = `stale ${Math.round(elapsedMs)}ms`;
         this.noteFailure(gameNow);
         return;
       }
 
       if (!result.ok) {
+        this.debug.lastDecideError = `${result.status ?? 'net'}: ${result.error}`;
         this.noteFailure(gameNow);
         return;
       }
 
+      this.debug.lastDecideError = null;
       this.onJevSuccess(
         result.answers,
         result.model,
