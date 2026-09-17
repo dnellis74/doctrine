@@ -11,7 +11,7 @@ const MANEUVERS: ManeuverId[] = [
   'hold',
 ];
 
-/** Signature element: eased probability vectors around the enemy. */
+/** Signature element: eased probability vectors around the Jev-driven tank. */
 export class IntentVectors {
   private readonly gfx: Phaser.GameObjects.Graphics;
   private display: Record<ManeuverId, number> = {

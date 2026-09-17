@@ -1,14 +1,13 @@
 import type { BrainAnswers } from './localBrain';
-import { localBrain, type LocalWorldView } from './localBrain';
+import { localBrain } from './localBrain';
 import type { ManeuverId } from './maneuvers';
 import { nearestCoverSpot, hasLineOfSight, COVER_LAYOUT } from './arena';
 import type { Tank } from './tank';
-import type { DoctrineId, BrainMode } from './constants';
 import { executeManeuver } from './maneuvers';
 import type { SymbolicState } from './describe';
 import { postDecide } from './decideClient';
 
-export interface EnemyBrainDebug {
+export interface JevBrainDebug {
   offline: boolean;
   latencyMs: number | null;
   model: string | null;
@@ -30,10 +29,11 @@ type DecisionListener = (info: {
 }) => void;
 
 /**
- * Cadence 350ms, one in-flight request, 1200ms staleness drop,
- * confidence gate, 600ms min commit, fallback after 3 failures.
+ * Player tank brain — Jev only (local cautious fallback if decide is down).
+ * Cadence 350ms, one in-flight, 1200ms staleness drop, confidence gate,
+ * 600ms min commit, fallback after 3 failures.
  */
-export class EnemyBrain {
+export class JevBrain {
   maneuver: ManeuverId = 'hold';
   aggressionScore = 1;
   flankSide: 1 | -1 = 1;
@@ -43,14 +43,12 @@ export class EnemyBrain {
   private pending = false;
   private offlineRetryAt = 0;
   private probed = false;
-  private doctrineId: DoctrineId = 'cautious';
-  private useJev = true;
   private listeners: DecisionListener[] = [];
   private lastSelf: Tank | null = null;
-  private lastPlayer: Tank | null = null;
+  private lastOpponent: Tank | null = null;
   private lastState: SymbolicState | null = null;
 
-  readonly debug: EnemyBrainDebug = {
+  readonly debug: JevBrainDebug = {
     offline: false,
     latencyMs: null,
     model: null,
@@ -62,34 +60,13 @@ export class EnemyBrain {
     lastDecideError: null,
   };
 
-  setDoctrine(id: DoctrineId): void {
-    this.doctrineId = id;
-  }
-
-  setBrainMode(mode: BrainMode): void {
-    this.useJev = mode === 'jev';
-    if (!this.useJev) {
-      this.debug.offline = true;
-      this.debug.model = 'local';
-      this.debug.latencyMs = null;
-      this.debug.lastDecideError = null;
-      this.probed = true;
-    }
-  }
-
   onDecision(cb: DecisionListener): void {
     this.listeners.push(cb);
   }
 
-  /** Startup reachability probe — local brain if decide is unreachable. */
   async probeAtStartup(state: SymbolicState): Promise<void> {
     if (this.probed) return;
     this.probed = true;
-    if (!this.useJev) {
-      this.debug.offline = true;
-      this.debug.model = 'local';
-      return;
-    }
     const result = await postDecide(state);
     if (!result.ok) {
       this.debug.lastDecideError = `${result.status ?? 'net'}: ${result.error}`;
@@ -97,20 +74,26 @@ export class EnemyBrain {
       return;
     }
     this.debug.lastDecideError = null;
-    this.onJevSuccess(result.answers, result.model, result.latencyMs, result.usage.input_tokens, state);
+    this.onJevSuccess(
+      result.answers,
+      result.model,
+      result.latencyMs,
+      result.usage.input_tokens,
+      state,
+    );
   }
 
-  tick(now: number, self: Tank, player: Tank, state: SymbolicState): void {
+  tick(now: number, self: Tank, opponent: Tank, state: SymbolicState): void {
     this.lastSelf = self;
-    this.lastPlayer = player;
+    this.lastOpponent = opponent;
     this.lastState = state;
 
     if (now - this.lastTick < 0.35) return;
     this.lastTick = now;
 
-    if (!this.useJev || this.debug.offline) {
-      this.runLocal(self, player, state, now);
-      if (this.useJev && now >= this.offlineRetryAt && !this.pending) {
+    if (this.debug.offline) {
+      this.runFallback(self, opponent, now);
+      if (now >= this.offlineRetryAt && !this.pending) {
         this.requestJev(state, now);
       }
       return;
@@ -158,8 +141,8 @@ export class EnemyBrain {
       this.enterOffline();
       this.offlineRetryAt = gameNow + 3;
     }
-    if (this.lastSelf && this.lastPlayer && this.lastState) {
-      this.runLocal(this.lastSelf, this.lastPlayer, this.lastState, gameNow);
+    if (this.lastSelf && this.lastOpponent) {
+      this.runFallback(this.lastSelf, this.lastOpponent, gameNow);
     }
   }
 
@@ -181,32 +164,24 @@ export class EnemyBrain {
     this.emit(state, answers, latencyMs, model, false, inputTokens);
   }
 
-  private runLocal(
-    self: Tank,
-    player: Tank,
-    _state: SymbolicState,
-    gameNow: number,
-  ): void {
-    const answers = localBrain(this.viewFromTanks(self, player));
-    this.debug.lastAnswers = answers;
-    if (this.debug.offline) this.debug.model = 'local';
-    this.commitAnswers(answers, gameNow);
-  }
-
-  private viewFromTanks(self: Tank, player: Tank): LocalWorldView {
-    const dist = Math.hypot(player.x - self.x, player.y - self.y);
-    const los = hasLineOfSight(self.x, self.y, player.x, player.y);
-    return {
-      doctrineId: this.doctrineId,
+  /** Emergency local when Jev is unreachable — cautious preset. */
+  private runFallback(self: Tank, opponent: Tank, gameNow: number): void {
+    const dist = Math.hypot(opponent.x - self.x, opponent.y - self.y);
+    const los = hasLineOfSight(self.x, self.y, opponent.x, opponent.y);
+    const answers = localBrain({
+      doctrineId: 'cautious',
       selfHealth: self.health,
-      playerHealth: player.health,
+      playerHealth: opponent.health,
       distance: dist,
       lineOfSight: los,
       selfInCover: !los,
       playerInCover: !los,
-      playerReloading: player.reloading,
+      playerReloading: opponent.reloading,
       selfReloading: self.reloading,
-    };
+    });
+    this.debug.lastAnswers = answers;
+    this.debug.model = 'local';
+    this.commitAnswers(answers, gameNow);
   }
 
   private enterOffline(): void {
@@ -215,19 +190,9 @@ export class EnemyBrain {
     this.debug.latencyMs = null;
     this.debug.model = 'local';
     this.offlineRetryAt = this.lastTick + 3;
-    if (
-      wasOnline &&
-      this.lastState &&
-      this.debug.lastAnswers
-    ) {
+    if (wasOnline && this.lastState && this.debug.lastAnswers) {
       this.debug.requestCount += 1;
-      this.emit(
-        this.lastState,
-        this.debug.lastAnswers,
-        null,
-        'local',
-        true,
-      );
+      this.emit(this.lastState, this.debug.lastAnswers, null, 'local', true);
     }
   }
 
@@ -275,14 +240,20 @@ export class EnemyBrain {
     }
   }
 
-  apply(self: Tank, player: Tank, now: number): void {
+  apply(self: Tank, opponent: Tank, now: number): void {
     self.speedMul = 0.75 + 0.15 * this.aggressionScore;
-    const spot = nearestCoverSpot(self.x, self.y, player.x, player.y, COVER_LAYOUT);
+    const spot = nearestCoverSpot(
+      self.x,
+      self.y,
+      opponent.x,
+      opponent.y,
+      COVER_LAYOUT,
+    );
     const cmd = executeManeuver(this.maneuver, {
       selfX: self.x,
       selfY: self.y,
-      playerX: player.x,
-      playerY: player.y,
+      playerX: opponent.x,
+      playerY: opponent.y,
       coverX: spot.x,
       coverY: spot.y,
       flankSide: this.flankSide,
@@ -291,19 +262,19 @@ export class EnemyBrain {
     self.setMoveIntent(cmd.heading, cmd.throttle);
 
     const lead = 0.25 + Math.random() * 0.15;
-    const aimX = player.x + player.vx * lead + (Math.random() - 0.5) * 40;
-    const aimY = player.y + player.vy * lead + (Math.random() - 0.5) * 40;
+    const aimX = opponent.x + opponent.vx * lead + (Math.random() - 0.5) * 40;
+    const aimY = opponent.y + opponent.vy * lead + (Math.random() - 0.5) * 40;
     self.setAim(aimX, aimY);
   }
 
-  aimTolerance(): number {
+  private aimTolerance(): number {
     return (12 - this.aggressionScore * 3) * (Math.PI / 180);
   }
 
-  shouldFire(self: Tank, player: Tank): boolean {
+  shouldFire(self: Tank, opponent: Tank): boolean {
     if (self.reloading || !self.alive) return false;
-    if (!hasLineOfSight(self.x, self.y, player.x, player.y)) return false;
-    const desired = Math.atan2(player.y - self.y, player.x - self.x);
+    if (!hasLineOfSight(self.x, self.y, opponent.x, opponent.y)) return false;
+    const desired = Math.atan2(opponent.y - self.y, opponent.x - self.x);
     let d = desired - self.turretAngle;
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;

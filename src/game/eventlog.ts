@@ -89,13 +89,13 @@ export class EventLog {
     }
   }
 
-  /** Player shell hit the enemy (self). */
-  playerHitMe(): void {
+  /** Opponent shell hit self (Jev / player tank). */
+  opponentHitMe(): void {
     this.push('fired, hit me');
   }
 
-  /** Player shell died without hitting the enemy. */
-  playerMissed(): void {
+  /** Opponent shell died without hitting self. */
+  opponentMissed(): void {
     this.push('fired, missed');
   }
 }

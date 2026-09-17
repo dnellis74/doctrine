@@ -36,18 +36,20 @@ export const HEALTH = 4;
 
 export const STORAGE_KEYS = {
   doctrineId: 'doctrine.enemyId',
-  brain: 'doctrine.brain',
   mute: 'doctrine.mute',
+  prompt: 'doctrine.prompt',
 } as const;
 
 export type DoctrineId = 'cautious' | 'berserker' | 'ambusher';
-export type BrainMode = 'local' | 'jev';
 
 export interface DoctrineDef {
   id: DoctrineId;
   label: string;
   text: string;
 }
+
+/** Matches server StateSchema doctrine max. */
+export const PROMPT_MAX_LEN = 600;
 
 export const DOCTRINES: DoctrineDef[] = [
   {
@@ -66,6 +68,14 @@ export const DOCTRINES: DoctrineDef[] = [
     text: 'Waits in cover until the player comes close, then attacks. Falls back to cover after taking damage.',
   },
 ];
+
+/**
+ * Default player-side doctrine for Jev.
+ * Grounded in symbolic state + maneuver/aggression questions (`follow: doctrine`).
+ * Does not mention aim/fire — code owns those.
+ */
+export const DEFAULT_JEV_PROMPT =
+  'You are `self`. Survive first, then win. Prefer `take_cover` when exposed (`self.in_cover` false) with `line_of_sight`, especially if `self.health` is low or half. Prefer `hold` in cover with a clean trade. Prefer `advance` when `player.reloading`, `player.health` is low, or `player` is open at medium/far. Prefer `flank` when `player.in_cover` blocks a fair trade. Prefer `retreat` only if low health and still exposed. Aggression: avoid while low and exposed; trade evenly; press on a reloading, low, or open `player`. Never charge through open LoS.';
 
 export function doctrineById(id: string | null | undefined): DoctrineDef {
   return DOCTRINES.find((d) => d.id === id) ?? DOCTRINES[0]!;
@@ -89,24 +99,6 @@ export function saveDoctrineId(id: DoctrineId): void {
   }
 }
 
-export function loadBrainMode(): BrainMode {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.brain);
-    if (raw === 'local' || raw === 'jev') return raw;
-  } catch {
-    /* ignore */
-  }
-  return 'jev';
-}
-
-export function saveBrainMode(mode: BrainMode): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.brain, mode);
-  } catch {
-    /* ignore */
-  }
-}
-
 export function loadMute(): boolean {
   try {
     return localStorage.getItem(STORAGE_KEYS.mute) === '1';
@@ -118,6 +110,28 @@ export function loadMute(): boolean {
 export function saveMute(muted: boolean): void {
   try {
     localStorage.setItem(STORAGE_KEYS.mute, muted ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clampPrompt(text: string): string {
+  return text.trim().slice(0, PROMPT_MAX_LEN) || DEFAULT_JEV_PROMPT;
+}
+
+export function loadPrompt(_fallbackDoctrineId?: DoctrineId): string {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.prompt);
+    if (raw && raw.trim()) return clampPrompt(raw);
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_JEV_PROMPT;
+}
+
+export function savePrompt(text: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.prompt, clampPrompt(text));
   } catch {
     /* ignore */
   }

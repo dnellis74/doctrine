@@ -16,8 +16,8 @@ export interface HudState {
 export const HUD_MUTE_ZONE = { x: 52, y: 48, w: 88, h: 28 } as const;
 
 /**
- * Top bar only — bottom corners stay clear for thumbs.
- * YOU |||| .... ENEMY READS YOU AS: CAMPING 72% .... JEV 94MS .... |||| ENEMY
+ * Top bar — YOU is Jev-driven; ENEMY is a local doctrine state machine.
+ * YOU |||| .... YOU READ ENEMY AS: CAMPING 72% .... JEV 94MS .... |||| ENEMY
  */
 export function drawHud(g: Phaser.GameObjects.Graphics, state: HudState): void {
   g.clear();
@@ -37,7 +37,7 @@ export function drawHud(g: Phaser.GameObjects.Graphics, state: HudState): void {
     alpha: 0.9,
   });
 
-  const intent = `ENEMY READS YOU AS: ${state.intentChoice.toUpperCase()} ${Math.round(state.intentConfidence * 100)}%`;
+  const intent = `YOU READ ENEMY AS: ${state.intentChoice.toUpperCase()} ${Math.round(state.intentConfidence * 100)}%`;
   drawText(g, intent, WORLD_W / 2, y, {
     size: 2.1,
     color: COLORS.enemy,

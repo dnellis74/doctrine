@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS } from '../game/constants';
-import type { BrainMode, DoctrineId } from '../game/constants';
+import type { DoctrineId } from '../game/constants';
 import { synth } from '../audio/synth';
 import { drawText } from '../render/font';
 import { enableGlowBlend, glowRect } from '../render/vector';
@@ -8,7 +8,7 @@ import { enableGlowBlend, glowRect } from '../render/vector';
 export interface ResultData {
   won: boolean;
   doctrineId: DoctrineId;
-  brain?: BrainMode;
+  doctrinePrompt?: string;
 }
 
 export class Result extends Phaser.Scene {
@@ -44,7 +44,7 @@ export class Result extends Phaser.Scene {
       color: COLORS.text,
       align: 'center',
     });
-    drawText(g, 'CHANGE ENEMY', width / 2, height * 0.68, {
+    drawText(g, 'CHANGE SETUP', width / 2, height * 0.68, {
       size: 3.5,
       color: COLORS.enemy,
       align: 'center',
@@ -57,7 +57,7 @@ export class Result extends Phaser.Scene {
         synth.uiTap();
         this.scene.start('Arena', {
           doctrineId: this.result.doctrineId,
-          brain: this.result.brain ?? 'jev',
+          doctrinePrompt: this.result.doctrinePrompt,
         });
       });
 

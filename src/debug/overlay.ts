@@ -1,5 +1,5 @@
 import type { SymbolicState } from '../game/describe';
-import type { EnemyBrainDebug } from '../game/enemyBrain';
+import type { JevBrainDebug } from '../game/jevBrain';
 
 export interface DecisionRecord {
   at: number;
@@ -26,7 +26,7 @@ export class DebugOverlay {
   private decisions: DecisionRecord[] = [];
   private totalInputTokens = 0;
   private lastState: SymbolicState | null = null;
-  private brain: EnemyBrainDebug | null = null;
+  private brain: JevBrainDebug | null = null;
   private onToggleCbs: Array<(v: boolean) => void> = [];
 
   constructor(parent: HTMLElement) {
@@ -126,7 +126,7 @@ export class DebugOverlay {
     if (v) this.render();
   }
 
-  bindBrain(brain: EnemyBrainDebug): void {
+  bindBrain(brain: JevBrainDebug): void {
     this.brain = brain;
     this.syncControls();
   }

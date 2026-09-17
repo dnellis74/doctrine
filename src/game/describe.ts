@@ -39,9 +39,9 @@ export interface DescribeActor {
 
 export interface DescribeWorld {
   doctrine: string;
-  /** Enemy tank (observer). */
+  /** Jev-controlled tank (observer / self). */
   self: DescribeActor;
-  /** Player tank. */
+  /** Opponent tank (schema field name `player` = the other combatant). */
   player: DescribeActor;
   recent_player_actions: string[];
 }

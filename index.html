@@ -39,6 +39,11 @@
         display: block;
         touch-action: none;
       }
+      #doctrine-prompt {
+        -webkit-user-select: text;
+        user-select: text;
+        touch-action: manipulation;
+      }
       /* Cheap scanline veil — CSS only, no per-frame cost */
       #game-container::after {
         content: '';

@@ -5,10 +5,9 @@ import {
   WORLD_W,
   TANK,
   type DoctrineId,
-  type BrainMode,
-  doctrineById,
-  loadBrainMode,
+  clampPrompt,
   loadMute,
+  loadPrompt,
   saveMute,
 } from '../game/constants';
 import {
@@ -21,9 +20,8 @@ import {
 } from '../game/arena';
 import { Tank } from '../game/tank';
 import { Shell } from '../game/shell';
-import { EnemyBrain } from '../game/enemyBrain';
-import { TwinStickInput } from '../input/touch';
-import { DesktopInput } from '../input/desktop';
+import { LocalEnemy } from '../game/localEnemy';
+import { JevBrain } from '../game/jevBrain';
 import { drawHud, HUD_MUTE_ZONE } from '../render/hud';
 import { vibrate, prefersReducedMotion } from '../game/haptics';
 import { synth } from '../audio/synth';
@@ -37,21 +35,20 @@ import type { ManeuverId } from '../game/maneuvers';
 
 export interface ArenaData {
   doctrineId: DoctrineId;
-  brain?: BrainMode;
+  /** Free-text doctrine prompt for the player's Jev brain. */
+  doctrinePrompt?: string;
 }
 
 export class Arena extends Phaser.Scene {
   private player!: Tank;
   private enemy!: Tank;
   private shells: Shell[] = [];
-  private brain = new EnemyBrain();
+  private enemyAi = new LocalEnemy();
+  private jev = new JevBrain();
   private doctrineId: DoctrineId = 'cautious';
-  private brainMode: BrainMode = 'jev';
+  private doctrinePrompt = '';
   private arenaGfx!: Phaser.GameObjects.Graphics;
-  private stickGfx!: Phaser.GameObjects.Graphics;
   private hudGfx!: Phaser.GameObjects.Graphics;
-  private touch!: TwinStickInput;
-  private desktop!: DesktopInput;
   private coverGroup!: Phaser.Physics.Arcade.StaticGroup;
   private ended = false;
   private elapsed = 0;
@@ -70,7 +67,9 @@ export class Arena extends Phaser.Scene {
 
   init(data: ArenaData): void {
     this.doctrineId = data.doctrineId ?? 'cautious';
-    this.brainMode = data.brain ?? loadBrainMode();
+    this.doctrinePrompt = clampPrompt(
+      data.doctrinePrompt ?? loadPrompt(this.doctrineId),
+    );
     this.ended = false;
     this.shells = [];
     this.elapsed = 0;
@@ -113,23 +112,16 @@ export class Arena extends Phaser.Scene {
     this.physics.add.collider(this.enemy.body, this.coverGroup);
     this.physics.add.collider(this.player.body, this.enemy.body);
 
-    this.brain = new EnemyBrain();
-    this.brain.setDoctrine(this.doctrineId);
-    this.brain.setBrainMode(this.brainMode);
+    this.enemyAi = new LocalEnemy();
+    this.enemyAi.setDoctrine(this.doctrineId);
+
+    this.jev = new JevBrain();
 
     const parent = (this.game.canvas.parentElement ?? document.body) as HTMLElement;
-    this.touch = new TwinStickInput(parent);
-    this.desktop = new DesktopInput(parent);
-    this.touch.attach();
-    this.desktop.attach();
-
     this.debug = new DebugOverlay(parent);
-    this.debug.bindBrain(this.brain.debug);
-    this.debug.onToggle((open) => {
-      if (open) this.touch.reset();
-    });
+    this.debug.bindBrain(this.jev.debug);
 
-    this.brain.onDecision((info) => {
+    this.jev.onDecision((info) => {
       this.debug.recordDecision({
         at: this.elapsed,
         state: info.state,
@@ -141,12 +133,8 @@ export class Arena extends Phaser.Scene {
       if (info.inputTokens) this.debug.addUsage(info.inputTokens);
     });
 
-    void this.brain.probeAtStartup(this.buildState());
+    void this.jev.probeAtStartup(this.buildState());
 
-    this.input.addPointer(2);
-
-    this.stickGfx = this.add.graphics().setScrollFactor(0).setDepth(100);
-    enableGlowBlend(this.stickGfx);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(90);
     enableGlowBlend(this.hudGfx);
 
@@ -190,8 +178,6 @@ export class Arena extends Phaser.Scene {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.input.keyboard?.off('keydown-M');
     synth.stopEngines();
-    this.touch?.detach();
-    this.desktop?.detach();
     this.debug?.destroy();
     this.particles?.destroy();
     this.intents?.destroy();
@@ -203,7 +189,6 @@ export class Arena extends Phaser.Scene {
     const g = this.arenaGfx;
     g.clear();
 
-    // Faint grid
     for (let x = 0; x <= WORLD_W; x += 48) {
       glowSeg(g, x, 0, x, WORLD_H, COLORS.grid, 0.35);
     }
@@ -223,14 +208,20 @@ export class Arena extends Phaser.Scene {
     const dt = Math.min(delta / 1000, 0.05);
     this.elapsed += dt;
 
-    this.applyPlayerInput();
     this.refreshState();
-    if (this.currentState) {
-      this.brain.tick(this.elapsed, this.enemy, this.player, this.currentState);
-    }
-    this.brain.apply(this.enemy, this.player, this.elapsed);
 
-    if (this.brain.shouldFire(this.enemy, this.player)) {
+    // Player = Jev; enemy = local doctrine machine
+    if (this.currentState) {
+      this.jev.tick(this.elapsed, this.player, this.enemy, this.currentState);
+    }
+    this.jev.apply(this.player, this.enemy, this.elapsed);
+    if (this.jev.shouldFire(this.player, this.enemy)) {
+      this.spawnShell(this.player);
+    }
+
+    this.enemyAi.tick(this.elapsed, this.enemy, this.player);
+    this.enemyAi.apply(this.enemy, this.player, this.elapsed);
+    if (this.enemyAi.shouldFire(this.enemy, this.player)) {
       this.spawnShell(this.enemy);
     }
 
@@ -242,17 +233,16 @@ export class Arena extends Phaser.Scene {
     }
     this.wasPlayerReloading = this.player.reloading;
 
-    if (this.lastManeuver !== null && this.brain.maneuver !== this.lastManeuver) {
-      synth.maneuverChange(this.brain.maneuver);
+    if (this.lastManeuver !== null && this.jev.maneuver !== this.lastManeuver) {
+      synth.maneuverChange(this.jev.maneuver);
     }
-    this.lastManeuver = this.brain.maneuver;
+    this.lastManeuver = this.jev.maneuver;
 
     this.updateEngines();
     this.updateShells(dt);
     this.particles.update(dt);
     this.updateIntents(dt);
     this.updateHud();
-    this.drawSticks();
 
     if (this.player.health <= 0 || this.enemy.health <= 0) {
       this.endRound(this.enemy.health <= 0);
@@ -272,18 +262,11 @@ export class Arena extends Phaser.Scene {
     );
   }
 
+  /** Symbolic state from Jev's POV: self = player tank, player = enemy opponent. */
   private buildState() {
     return describe({
-      doctrine: doctrineById(this.doctrineId).text,
+      doctrine: this.doctrinePrompt,
       self: {
-        x: this.enemy.x,
-        y: this.enemy.y,
-        vx: this.enemy.vx,
-        vy: this.enemy.vy,
-        health: this.enemy.health,
-        reloading: this.enemy.reloading,
-      },
-      player: {
         x: this.player.x,
         y: this.player.y,
         vx: this.player.vx,
@@ -291,56 +274,30 @@ export class Arena extends Phaser.Scene {
         health: this.player.health,
         reloading: this.player.reloading,
       },
+      player: {
+        x: this.enemy.x,
+        y: this.enemy.y,
+        vx: this.enemy.vx,
+        vy: this.enemy.vy,
+        health: this.enemy.health,
+        reloading: this.enemy.reloading,
+      },
       recent_player_actions: this.eventLog.list(),
     });
   }
 
   private refreshState(): void {
+    // Track opponent (enemy) actions relative to self (player / Jev)
     this.eventLog.observe({
-      selfX: this.enemy.x,
-      selfY: this.enemy.y,
-      playerX: this.player.x,
-      playerY: this.player.y,
-      playerVx: this.player.vx,
-      playerVy: this.player.vy,
+      selfX: this.player.x,
+      selfY: this.player.y,
+      playerX: this.enemy.x,
+      playerY: this.enemy.y,
+      playerVx: this.enemy.vx,
+      playerVy: this.enemy.vy,
     });
     this.currentState = this.buildState();
     this.debug.setState(this.currentState);
-  }
-
-  private applyPlayerInput(): void {
-    if (this.debug.visible) {
-      this.player.setRelativeDrive(0, 0);
-      return;
-    }
-
-    const move = this.touch.move;
-    const aim = this.touch.aim;
-    const desk = this.desktop.drive();
-    const dz = TwinStickInput.DEADZONE;
-
-    if (move.active && move.magnitude > dz) {
-      const turn = Math.abs(move.nx) > dz ? move.nx : 0;
-      const throttle = Math.abs(move.ny) > dz ? -move.ny : 0;
-      this.player.setRelativeDrive(turn, throttle);
-    } else if (desk.turn !== 0 || desk.throttle !== 0) {
-      this.player.setRelativeDrive(desk.turn, desk.throttle);
-    } else {
-      this.player.setRelativeDrive(0, 0);
-    }
-
-    if (aim.active && aim.magnitude > dz) {
-      this.player.setAimAngle(Math.atan2(aim.ny, aim.nx));
-    } else {
-      const cam = this.cameras.main;
-      const ptr = this.input.activePointer;
-      const world = cam.getWorldPoint(ptr.x, ptr.y);
-      this.player.setAim(world.x, world.y);
-    }
-
-    if (this.touch.consumeFire() || this.desktop.consumeFire()) {
-      this.spawnShell(this.player);
-    }
   }
 
   private spawnShell(tank: Tank): void {
@@ -358,7 +315,7 @@ export class Arena extends Phaser.Scene {
       const prevY = shell.y;
       shell.update(dt);
       if (!shell.alive) {
-        this.notePlayerShellEnd(shell);
+        this.noteOpponentShellEnd(shell);
         shell.destroy();
         continue;
       }
@@ -393,7 +350,7 @@ export class Arena extends Phaser.Scene {
       if (hitCover) {
         synth.hitCover();
         this.particles.hitSparks(shell.x, shell.y, COLORS.cover);
-        this.notePlayerShellEnd(shell);
+        this.noteOpponentShellEnd(shell);
         shell.destroy();
         continue;
       }
@@ -410,7 +367,7 @@ export class Arena extends Phaser.Scene {
         vibrate(60);
         this.shake();
         this.particles.hitSparks(shell.x, shell.y, COLORS.hit);
-        if (shell.owner === 'player') this.eventLog.playerHitMe();
+        if (shell.owner === 'enemy') this.eventLog.opponentHitMe();
         shell.destroy();
         if (target.health <= 0) {
           synth.explode();
@@ -424,10 +381,10 @@ export class Arena extends Phaser.Scene {
     this.shells = next;
   }
 
-  private notePlayerShellEnd(shell: Shell): void {
-    if (shell.owner !== 'player') return;
+  private noteOpponentShellEnd(shell: Shell): void {
+    if (shell.owner !== 'enemy') return;
     if (shell.hitTank) return;
-    this.eventLog.playerMissed();
+    this.eventLog.opponentMissed();
   }
 
   private shake(): void {
@@ -436,53 +393,49 @@ export class Arena extends Phaser.Scene {
   }
 
   private updateIntents(dt: number): void {
-    if (!this.enemy.alive) {
+    // Intent vectors sit on the Jev-driven player tank
+    if (!this.player.alive) {
       this.intents.update(dt, {
-        x: this.enemy.x,
-        y: this.enemy.y,
-        playerX: this.player.x,
-        playerY: this.player.y,
-        coverX: this.enemy.x,
-        coverY: this.enemy.y,
-        flankSide: this.brain.flankSide,
+        x: this.player.x,
+        y: this.player.y,
+        playerX: this.enemy.x,
+        playerY: this.enemy.y,
+        coverX: this.player.x,
+        coverY: this.player.y,
+        flankSide: this.jev.flankSide,
         probabilities: null,
       });
       return;
     }
     const spot = nearestCoverSpot(
-      this.enemy.x,
-      this.enemy.y,
       this.player.x,
       this.player.y,
+      this.enemy.x,
+      this.enemy.y,
       COVER_LAYOUT,
     );
-    const raw = this.brain.debug.lastAnswers?.maneuver.probabilities ?? null;
-    const probabilities = raw
-      ? (raw as Record<ManeuverId, number>)
-      : null;
+    const raw = this.jev.debug.lastAnswers?.maneuver.probabilities ?? null;
+    const probabilities = raw ? (raw as Record<ManeuverId, number>) : null;
     this.intents.update(dt, {
-      x: this.enemy.x,
-      y: this.enemy.y,
-      playerX: this.player.x,
-      playerY: this.player.y,
+      x: this.player.x,
+      y: this.player.y,
+      playerX: this.enemy.x,
+      playerY: this.enemy.y,
       coverX: spot.x,
       coverY: spot.y,
-      flankSide: this.brain.flankSide,
+      flankSide: this.jev.flankSide,
       probabilities,
     });
   }
 
   private updateHud(): void {
-    const intent = this.brain.debug.lastAnswers?.player_intent.choice ?? 'unclear';
-    const conf = this.brain.debug.lastAnswers?.player_intent.confidence ?? 0;
-    const latencyLabel =
-      this.brainMode === 'local'
-        ? 'LOCAL BRAIN'
-        : this.brain.debug.offline
-          ? 'JEV OFFLINE'
-          : this.brain.debug.latencyMs != null
-            ? `JEV ${Math.round(this.brain.debug.latencyMs)}MS`
-            : 'JEV ...';
+    const intent = this.jev.debug.lastAnswers?.player_intent.choice ?? 'unclear';
+    const conf = this.jev.debug.lastAnswers?.player_intent.confidence ?? 0;
+    const latencyLabel = this.jev.debug.offline
+      ? 'JEV OFFLINE'
+      : this.jev.debug.latencyMs != null
+        ? `JEV ${Math.round(this.jev.debug.latencyMs)}MS`
+        : 'JEV ...';
     drawHud(this.hudGfx, {
       playerHp: this.player.health,
       enemyHp: this.enemy.health,
@@ -493,38 +446,6 @@ export class Arena extends Phaser.Scene {
     });
   }
 
-  private drawSticks(): void {
-    const g = this.stickGfx;
-    g.clear();
-    if (this.debug.visible) return;
-
-    const canvas = this.game.canvas;
-    const rect = canvas.getBoundingClientRect();
-    const sx = WORLD_W / rect.width;
-    const sy = WORLD_H / rect.height;
-
-    const drawOne = (stick: TwinStickInput['move'], color: number) => {
-      if (!stick.active) return;
-      const ox = (stick.originX - rect.left) * sx;
-      const oy = (stick.originY - rect.top) * sy;
-      const kx = (stick.x - rect.left) * sx;
-      const ky = (stick.y - rect.top) * sy;
-      const r = TwinStickInput.MAX_RADIUS * ((sx + sy) / 2);
-      g.lineStyle(6, color, 0.08);
-      g.strokeCircle(ox, oy, r);
-      g.lineStyle(1.5, color, 0.35);
-      g.strokeCircle(ox, oy, r);
-      glowSeg(g, ox, oy, kx, ky, color, 0.9);
-      g.lineStyle(6, color, 0.12);
-      g.strokeCircle(kx, ky, 14);
-      g.lineStyle(1.5, color, 0.9);
-      g.strokeCircle(kx, ky, 14);
-    };
-
-    drawOne(this.touch.move, COLORS.player);
-    drawOne(this.touch.aim, COLORS.enemy);
-  }
-
   private endRound(won: boolean): void {
     if (this.ended) return;
     this.ended = true;
@@ -533,7 +454,7 @@ export class Arena extends Phaser.Scene {
       this.scene.start('Result', {
         won,
         doctrineId: this.doctrineId,
-        brain: this.brainMode,
+        doctrinePrompt: this.doctrinePrompt,
       });
     });
   }
