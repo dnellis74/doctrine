@@ -3,6 +3,7 @@ import { COLORS, WORLD_H, WORLD_W } from './game/constants';
 import { Title } from './scenes/Title';
 import { Arena } from './scenes/Arena';
 import { Result } from './scenes/Result';
+import { Guide } from './scenes/Guide';
 import { GameChrome } from './render/chrome';
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -25,7 +26,7 @@ const config: Phaser.Types.Core.GameConfig = {
   input: {
     activePointers: 3,
   },
-  scene: [Title, Arena, Result],
+  scene: [Title, Arena, Result, Guide],
   audio: {
     disableWebAudio: false,
   },

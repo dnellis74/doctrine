@@ -22,7 +22,7 @@ import { Tank } from '../game/tank';
 import { Shell } from '../game/shell';
 import { LocalEnemy } from '../game/localEnemy';
 import { JevBrain } from '../game/jevBrain';
-import { drawHud, HUD_MUTE_ZONE } from '../render/hud';
+import { drawHud, HUD_HOME_ZONE, HUD_MUTE_ZONE } from '../render/hud';
 import { vibrate, prefersReducedMotion } from '../game/haptics';
 import { synth } from '../audio/synth';
 import { describe } from '../game/describe';
@@ -145,7 +145,15 @@ export class Arena extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => this.toggleMute());
 
+    this.add
+      .zone(HUD_HOME_ZONE.x, HUD_HOME_ZONE.y + 6, HUD_HOME_ZONE.w, HUD_HOME_ZONE.h)
+      .setScrollFactor(0)
+      .setDepth(95)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.goHome());
+
     this.input.keyboard?.on('keydown-M', () => this.toggleMute());
+    this.input.keyboard?.on('keydown-ESC', () => this.goHome());
 
     synth.unlock();
     synth.startEngines();
@@ -164,6 +172,15 @@ export class Arena extends Phaser.Scene {
     if (!this.muted) synth.uiTap();
   }
 
+  private goHome(): void {
+    if (this.ended) return;
+    this.ended = true;
+    synth.unlock();
+    synth.uiTap();
+    synth.stopEngines();
+    this.scene.start('Title');
+  }
+
   private onVisibility = (): void => {
     if (document.hidden) {
       this.scene.pause();
@@ -177,6 +194,7 @@ export class Arena extends Phaser.Scene {
   private cleanup(): void {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.input.keyboard?.off('keydown-M');
+    this.input.keyboard?.off('keydown-ESC');
     synth.stopEngines();
     this.debug?.destroy();
     this.particles?.destroy();

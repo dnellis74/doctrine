@@ -88,6 +88,11 @@ export class Title extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => this.resetPrompt());
 
+    this.add
+      .zone(width - 110, height * 0.94, 180, 36)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.openGuide());
+
     const startZone = this.add
       .zone(width / 2, height * 0.84 + 10, 480, 44)
       .setInteractive({ useHandCursor: true });
@@ -122,6 +127,10 @@ export class Title extends Phaser.Scene {
     this.input.keyboard?.on('keydown-R', () => {
       if (this.promptBox?.isFocused()) return;
       this.resetPrompt();
+    });
+    this.input.keyboard?.on('keydown-G', () => {
+      if (this.promptBox?.isFocused()) return;
+      this.openGuide();
     });
 
     this.events.once('shutdown', () => this.teardownPrompt());
@@ -201,13 +210,29 @@ export class Title extends Phaser.Scene {
       align: 'center',
     });
 
+    drawText(g, 'STATE GUIDE', width - 110, height * 0.94, {
+      size: 1.8,
+      color: COLORS.enemy,
+      align: 'center',
+    });
+
     drawText(
       g,
-      'WATCH THE DUEL  ·  ` DEBUG  ·  M MUTE  ·  R RESET',
-      width / 2 + 40,
+      'G GUIDE  ·  M MUTE  ·  R RESET PROMPT',
+      width / 2,
       height * 0.94,
-      { size: 1.5, color: COLORS.cover, align: 'center' },
+      { size: 1.4, color: COLORS.cover, align: 'center' },
     );
+  }
+
+  private openGuide(): void {
+    this.blurPrompt();
+    synth.unlock();
+    synth.uiTap();
+    saveDoctrineId(this.selected);
+    if (this.promptBox) savePrompt(this.promptBox.value);
+    this.teardownPrompt();
+    this.scene.start('Guide');
   }
 
   private resetPrompt(): void {

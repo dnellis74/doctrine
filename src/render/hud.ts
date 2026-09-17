@@ -15,6 +15,9 @@ export interface HudState {
 /** Hit target for the mute toggle (world/UI coords). */
 export const HUD_MUTE_ZONE = { x: 52, y: 48, w: 88, h: 28 } as const;
 
+/** Hit target for returning to the title screen. */
+export const HUD_HOME_ZONE = { x: 148, y: 48, w: 88, h: 28 } as const;
+
 /**
  * Top bar — YOU is Jev-driven; ENEMY is a local doctrine state machine.
  * YOU |||| .... YOU READ ENEMY AS: CAMPING 72% .... JEV 94MS .... |||| ENEMY
@@ -33,6 +36,13 @@ export function drawHud(g: Phaser.GameObjects.Graphics, state: HudState): void {
   drawText(g, state.muted ? 'MUTED' : 'SOUND', HUD_MUTE_ZONE.x, HUD_MUTE_ZONE.y, {
     size: 1.8,
     color: state.muted ? COLORS.hit : COLORS.cover,
+    align: 'center',
+    alpha: 0.9,
+  });
+
+  drawText(g, 'RESET', HUD_HOME_ZONE.x, HUD_HOME_ZONE.y, {
+    size: 1.8,
+    color: COLORS.hit,
     align: 'center',
     alpha: 0.9,
   });
