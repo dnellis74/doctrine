@@ -69,13 +69,26 @@ export class Title extends Phaser.Scene {
       .setOrigin(0.5);
 
     const start = this.add
-      .text(width / 2, height * 0.88, 'TAP TO START', {
+      .text(width / 2, height * 0.82, 'CLICK OR SPACE TO START', {
         fontFamily: 'monospace',
         fontSize: '22px',
         color: '#FFB347',
       })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
+
+    this.add
+      .text(
+        width / 2,
+        height * 0.92,
+        'WASD / ARROWS  ·  MOUSE AIM  ·  CLICK FIRE  ·  ` DEBUG',
+        {
+          fontFamily: 'monospace',
+          fontSize: '12px',
+          color: '#3E8C84',
+        },
+      )
+      .setOrigin(0.5);
 
     const go = () => {
       synth.unlock();
@@ -86,5 +99,15 @@ export class Title extends Phaser.Scene {
 
     start.on('pointerdown', go);
     this.input.keyboard?.once('keydown-SPACE', go);
+    this.input.keyboard?.on('keydown-ONE', () => this.pick('cautious'));
+    this.input.keyboard?.on('keydown-TWO', () => this.pick('berserker'));
+    this.input.keyboard?.on('keydown-THREE', () => this.pick('ambusher'));
+  }
+
+  private pick(id: DoctrineId): void {
+    this.selected = id;
+    saveDoctrineId(id);
+    synth.uiTap();
+    this.scene.restart();
   }
 }

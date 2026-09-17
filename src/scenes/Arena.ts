@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
-import { COLORS, WORLD_H, WORLD_W, type DoctrineId } from '../game/constants';
+import {
+  COLORS,
+  WORLD_H,
+  WORLD_W,
+  type DoctrineId,
+  doctrineById,
+} from '../game/constants';
 import {
   COVER_LAYOUT,
   ENEMY_SPAWN,
@@ -15,6 +21,9 @@ import { DesktopInput } from '../input/desktop';
 import { drawBasicHud } from '../render/hud';
 import { vibrate, prefersReducedMotion } from '../game/haptics';
 import { synth } from '../audio/synth';
+import { describe } from '../game/describe';
+import { EventLog } from '../game/eventlog';
+import { DebugOverlay } from '../debug/overlay';
 
 export interface ArenaData {
   doctrineId: DoctrineId;
@@ -36,6 +45,9 @@ export class Arena extends Phaser.Scene {
   private ended = false;
   private elapsed = 0;
   private wasPlayerReloading = false;
+  private eventLog = new EventLog();
+  private debug!: DebugOverlay;
+  private lastDecisionAt = 0;
 
   constructor() {
     super('Arena');
@@ -46,6 +58,8 @@ export class Arena extends Phaser.Scene {
     this.ended = false;
     this.shells = [];
     this.elapsed = 0;
+    this.eventLog.clear();
+    this.lastDecisionAt = 0;
   }
 
   create(): void {
@@ -80,13 +94,18 @@ export class Arena extends Phaser.Scene {
     this.brain = new EnemyBrain();
     this.brain.setDoctrine(this.doctrineId);
 
-    const parent = this.game.canvas.parentElement ?? document.body;
-    this.touch = new TwinStickInput(parent as HTMLElement);
-    this.desktop = new DesktopInput(parent as HTMLElement);
+    const parent = (this.game.canvas.parentElement ?? document.body) as HTMLElement;
+    this.touch = new TwinStickInput(parent);
+    this.desktop = new DesktopInput(parent);
     this.touch.attach();
     this.desktop.attach();
 
-    // Phaser multi-touch
+    this.debug = new DebugOverlay(parent);
+    this.debug.bindBrain(this.brain.debug);
+    this.debug.onToggle((open) => {
+      if (open) this.touch.reset();
+    });
+
     this.input.addPointer(2);
 
     this.stickGfx = this.add.graphics().setScrollFactor(0).setDepth(100);
@@ -121,6 +140,7 @@ export class Arena extends Phaser.Scene {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.touch?.detach();
     this.desktop?.detach();
+    this.debug?.destroy();
     for (const s of this.shells) s.destroy();
     this.shells = [];
   }
@@ -129,7 +149,6 @@ export class Arena extends Phaser.Scene {
     const g = this.arenaGfx;
     g.clear();
 
-    // Grid
     g.lineStyle(1, COLORS.grid, 0.25);
     for (let x = 0; x <= WORLD_W; x += 48) {
       g.beginPath();
@@ -144,11 +163,9 @@ export class Arena extends Phaser.Scene {
       g.strokePath();
     }
 
-    // Border
     g.lineStyle(1.5, COLORS.cover, 0.8);
     g.strokeRect(12, 12, WORLD_W - 24, WORLD_H - 24);
 
-    // Cover outlines
     for (const b of COVER_LAYOUT) {
       g.lineStyle(1.5, COLORS.cover, 1);
       g.strokeRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
@@ -177,6 +194,7 @@ export class Arena extends Phaser.Scene {
     this.wasPlayerReloading = this.player.reloading;
 
     this.updateShells(dt);
+    this.updatePerception();
     this.updateHud();
     this.drawSticks();
 
@@ -185,14 +203,64 @@ export class Arena extends Phaser.Scene {
     }
   }
 
+  private updatePerception(): void {
+    this.eventLog.observe({
+      selfX: this.enemy.x,
+      selfY: this.enemy.y,
+      playerX: this.player.x,
+      playerY: this.player.y,
+      playerVx: this.player.vx,
+      playerVy: this.player.vy,
+    });
+
+    const state = describe({
+      doctrine: doctrineById(this.doctrineId).text,
+      self: {
+        x: this.enemy.x,
+        y: this.enemy.y,
+        vx: this.enemy.vx,
+        vy: this.enemy.vy,
+        health: this.enemy.health,
+        reloading: this.enemy.reloading,
+      },
+      player: {
+        x: this.player.x,
+        y: this.player.y,
+        vx: this.player.vx,
+        vy: this.player.vy,
+        health: this.player.health,
+        reloading: this.player.reloading,
+      },
+      recent_player_actions: this.eventLog.list(),
+    });
+
+    this.debug.setState(state);
+
+    if (this.brain.debug.requestCount !== this.lastDecisionAt) {
+      this.lastDecisionAt = this.brain.debug.requestCount;
+      this.debug.recordDecision({
+        at: this.elapsed,
+        state,
+        answers: this.brain.debug.lastAnswers,
+        latencyMs: this.brain.debug.latencyMs,
+        model: this.brain.debug.model ?? 'local',
+        offline: this.brain.debug.offline,
+      });
+    }
+  }
+
   private applyPlayerInput(): void {
+    if (this.debug.visible) {
+      this.player.setRelativeDrive(0, 0);
+      return;
+    }
+
     const move = this.touch.move;
     const aim = this.touch.aim;
     const desk = this.desktop.drive();
     const dz = TwinStickInput.DEADZONE;
 
     if (move.active && move.magnitude > dz) {
-      // Stick relative to hull: up=forward, down=reverse, x=turn
       const turn = Math.abs(move.nx) > dz ? move.nx : 0;
       const throttle = Math.abs(move.ny) > dz ? -move.ny : 0;
       this.player.setRelativeDrive(turn, throttle);
@@ -231,11 +299,11 @@ export class Arena extends Phaser.Scene {
       const prevY = shell.y;
       shell.update(dt);
       if (!shell.alive) {
+        this.notePlayerShellEnd(shell);
         shell.destroy();
         continue;
       }
 
-      // Cover collision along segment
       let hitCover = false;
       for (const b of COVER_LAYOUT) {
         if (
@@ -254,7 +322,6 @@ export class Arena extends Phaser.Scene {
           break;
         }
       }
-      // Walls (outer bounds)
       if (
         shell.x < 24 ||
         shell.x > WORLD_W - 24 ||
@@ -266,6 +333,7 @@ export class Arena extends Phaser.Scene {
 
       if (hitCover) {
         synth.hitCover();
+        this.notePlayerShellEnd(shell);
         shell.destroy();
         continue;
       }
@@ -277,9 +345,11 @@ export class Arena extends Phaser.Scene {
         Math.hypot(shell.x - target.x, shell.y - target.y) < hitR
       ) {
         target.takeHit();
+        shell.hitTank = true;
         synth.hitTank();
         vibrate(60);
         this.shake();
+        if (shell.owner === 'player') this.eventLog.playerHitMe();
         shell.destroy();
         if (target.health <= 0) synth.explode();
         continue;
@@ -288,6 +358,12 @@ export class Arena extends Phaser.Scene {
       next.push(shell);
     }
     this.shells = next;
+  }
+
+  private notePlayerShellEnd(shell: Shell): void {
+    if (shell.owner !== 'player') return;
+    if (shell.hitTank) return;
+    this.eventLog.playerMissed();
   }
 
   private shake(): void {
@@ -312,6 +388,8 @@ export class Arena extends Phaser.Scene {
   private drawSticks(): void {
     const g = this.stickGfx;
     g.clear();
+    if (this.debug.visible) return;
+
     const canvas = this.game.canvas;
     const rect = canvas.getBoundingClientRect();
     const sx = WORLD_W / rect.width;

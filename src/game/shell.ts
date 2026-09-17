@@ -18,6 +18,7 @@ export class Shell {
   vy: number;
   traveled = 0;
   alive = true;
+  hitTank = false;
   readonly gfx: Phaser.GameObjects.Graphics;
 
   constructor(
