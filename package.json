@@ -1,0 +1,24 @@
+{
+  "name": "doctrine",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "typescript": "~5.9.2",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "phaser": "^4.2.1",
+    "zod": "^3.25.76"
+  }
+}
