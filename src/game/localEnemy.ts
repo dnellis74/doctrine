@@ -1,7 +1,7 @@
 import type { BrainAnswers } from './localBrain';
 import { localBrain, type LocalWorldView } from './localBrain';
 import type { ManeuverId } from './maneuvers';
-import { nearestCoverSpot, hasLineOfSight, COVER_LAYOUT } from './arena';
+import { nearestCoverSpot, hasLineOfSight, COVER_LAYOUT, steerAroundObstacles } from './arena';
 import type { Tank } from './tank';
 import type { DoctrineId } from './constants';
 import { executeManeuver } from './maneuvers';
@@ -80,7 +80,9 @@ export class LocalEnemy {
       flankSide: this.flankSide,
       now,
     });
-    self.setMoveIntent(cmd.heading, cmd.throttle);
+    const look = 72 + cmd.throttle * 48;
+    const steered = steerAroundObstacles(self.x, self.y, cmd.heading, look);
+    self.setMoveIntent(steered.heading, cmd.throttle * steered.throttleScale);
 
     const lead = 0.25 + Math.random() * 0.15;
     const aimX = opponent.x + opponent.vx * lead + (Math.random() - 0.5) * 40;

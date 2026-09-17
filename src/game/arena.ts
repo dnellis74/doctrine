@@ -151,5 +151,55 @@ export function raycastForward(
 ): boolean {
   const x1 = x + Math.cos(angle) * dist;
   const y1 = y + Math.sin(angle) * dist;
+  const margin = 40;
+  if (
+    x1 < margin ||
+    x1 > WORLD_W - margin ||
+    y1 < margin ||
+    y1 > WORLD_H - margin
+  ) {
+    return true;
+  }
   return !hasLineOfSight(x, y, x1, y1, blocks);
+}
+
+/**
+ * Bias a desired drive heading around cover / arena walls.
+ * Returns a clear(er) heading and a throttle scale (1 = free, lower = blocked).
+ */
+export function steerAroundObstacles(
+  x: number,
+  y: number,
+  heading: number,
+  lookAhead = 90,
+): { heading: number; throttleScale: number } {
+  if (!raycastForward(x, y, heading, lookAhead)) {
+    // Soft side whiskers near walls so we peel off early
+    const leftGlance = raycastForward(x, y, heading - 0.55, lookAhead * 0.7);
+    const rightGlance = raycastForward(x, y, heading + 0.55, lookAhead * 0.7);
+    if (leftGlance && !rightGlance) {
+      return { heading: heading + 0.35, throttleScale: 0.85 };
+    }
+    if (rightGlance && !leftGlance) {
+      return { heading: heading - 0.35, throttleScale: 0.85 };
+    }
+    return { heading, throttleScale: 1 };
+  }
+
+  const probes = [0.55, 0.95, 1.35, 1.85, 2.4];
+  for (const ang of probes) {
+    const left = heading - ang;
+    const right = heading + ang;
+    const lOk = !raycastForward(x, y, left, lookAhead);
+    const rOk = !raycastForward(x, y, right, lookAhead);
+    if (lOk && !rOk) return { heading: left, throttleScale: 0.4 };
+    if (rOk && !lOk) return { heading: right, throttleScale: 0.4 };
+    if (lOk && rOk) {
+      // Prefer the smaller turn
+      return { heading: ang <= Math.PI ? left : right, throttleScale: 0.4 };
+    }
+  }
+
+  // Fully boxed in — spin toward the openest short probe
+  return { heading: heading + Math.PI * 0.6, throttleScale: 0.15 };
 }

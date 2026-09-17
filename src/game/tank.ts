@@ -198,12 +198,28 @@ export class Tank {
         speed = TANK.maxSpeed * this.throttle * this.speedMul;
       }
 
-      if (speed > 0 && raycastForward(this.x, this.y, this.hullAngle, 56)) {
-        const leftClear = !raycastForward(this.x, this.y, this.hullAngle - 0.7, 56);
-        const rightClear = !raycastForward(this.x, this.y, this.hullAngle + 0.7, 56);
-        const side = leftClear && !rightClear ? -1 : rightClear && !leftClear ? 1 : Math.sign(err) || 1;
-        this.desiredHeading = this.hullAngle + side * 0.9;
-        speed *= 0.45;
+      // Look farther when moving faster. Arena walls + cover.
+      const look = 56 + Math.min(1, Math.abs(speed) / TANK.maxSpeed) * 50;
+      const blocked = speed > 0 && raycastForward(this.x, this.y, this.hullAngle, look);
+      if (blocked) {
+        const leftClear = !raycastForward(this.x, this.y, this.hullAngle - 0.75, look);
+        const rightClear = !raycastForward(this.x, this.y, this.hullAngle + 0.75, look);
+        const side =
+          leftClear && !rightClear
+            ? -1
+            : rightClear && !leftClear
+              ? 1
+              : Math.sign(err) || 1;
+        this.desiredHeading = this.hullAngle + side * 1.1;
+
+        // If already below near-max speed (scraping / slowed), stop pushing into the wall
+        // and turn clear. At high speed, bleed speed while peeling off.
+        const nearMax = this.getSpeed() >= TANK.maxSpeed * this.speedMul * 0.85;
+        if (!nearMax) {
+          speed = 0;
+        } else {
+          speed *= 0.4;
+        }
       }
     }
 
