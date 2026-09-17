@@ -3,7 +3,7 @@ import { localBrain, type LocalWorldView } from './localBrain';
 import type { ManeuverId } from './maneuvers';
 import { nearestCoverSpot, hasLineOfSight, COVER_LAYOUT } from './arena';
 import type { Tank } from './tank';
-import type { DoctrineId } from './constants';
+import type { DoctrineId, BrainMode } from './constants';
 import { executeManeuver } from './maneuvers';
 import type { SymbolicState } from './describe';
 import { postDecide } from './decideClient';
@@ -44,6 +44,7 @@ export class EnemyBrain {
   private offlineRetryAt = 0;
   private probed = false;
   private doctrineId: DoctrineId = 'cautious';
+  private useJev = true;
   private listeners: DecisionListener[] = [];
   private lastSelf: Tank | null = null;
   private lastPlayer: Tank | null = null;
@@ -65,6 +66,17 @@ export class EnemyBrain {
     this.doctrineId = id;
   }
 
+  setBrainMode(mode: BrainMode): void {
+    this.useJev = mode === 'jev';
+    if (!this.useJev) {
+      this.debug.offline = true;
+      this.debug.model = 'local';
+      this.debug.latencyMs = null;
+      this.debug.lastDecideError = null;
+      this.probed = true;
+    }
+  }
+
   onDecision(cb: DecisionListener): void {
     this.listeners.push(cb);
   }
@@ -73,6 +85,11 @@ export class EnemyBrain {
   async probeAtStartup(state: SymbolicState): Promise<void> {
     if (this.probed) return;
     this.probed = true;
+    if (!this.useJev) {
+      this.debug.offline = true;
+      this.debug.model = 'local';
+      return;
+    }
     const result = await postDecide(state);
     if (!result.ok) {
       this.debug.lastDecideError = `${result.status ?? 'net'}: ${result.error}`;
@@ -91,9 +108,9 @@ export class EnemyBrain {
     if (now - this.lastTick < 0.35) return;
     this.lastTick = now;
 
-    if (this.debug.offline) {
+    if (!this.useJev || this.debug.offline) {
       this.runLocal(self, player, state, now);
-      if (now >= this.offlineRetryAt && !this.pending) {
+      if (this.useJev && now >= this.offlineRetryAt && !this.pending) {
         this.requestJev(state, now);
       }
       return;

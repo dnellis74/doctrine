@@ -1,13 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, SHELL } from '../game/constants';
 import type { TankSide } from '../game/tank';
-
-export interface ShellHit {
-  kind: 'cover' | 'tank';
-  side?: TankSide;
-  x: number;
-  y: number;
-}
+import { enableGlowBlend, glowSeg } from '../render/vector';
 
 export class Shell {
   readonly owner: TankSide;
@@ -36,6 +30,7 @@ export class Shell {
     this.vy = Math.sin(angle) * SHELL.speed;
     this.gfx = scene.add.graphics();
     this.gfx.setDepth(8);
+    enableGlowBlend(this.gfx);
   }
 
   update(dt: number): void {
@@ -56,11 +51,14 @@ export class Shell {
     if (!this.alive) return;
     const angle = Math.atan2(this.vy, this.vx);
     const len = 10;
-    g.lineStyle(1.5, this.color, 1);
-    g.beginPath();
-    g.moveTo(this.x - Math.cos(angle) * len * 0.5, this.y - Math.sin(angle) * len * 0.5);
-    g.lineTo(this.x + Math.cos(angle) * len * 0.5, this.y + Math.sin(angle) * len * 0.5);
-    g.strokePath();
+    glowSeg(
+      g,
+      this.x - Math.cos(angle) * len * 0.5,
+      this.y - Math.sin(angle) * len * 0.5,
+      this.x + Math.cos(angle) * len * 0.5,
+      this.y + Math.sin(angle) * len * 0.5,
+      this.color,
+    );
   }
 
   destroy(): void {

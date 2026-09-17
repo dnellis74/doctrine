@@ -19,7 +19,7 @@ Local server reads `TYPESAFE_API_KEY` from `.env.local`. Vercel uses `jev_api_ke
 
 1. Playable skeleton (local AI) — done
 2. Symbolic state + debug overlay — done
-3. Jev decision loop — current
-4. Vector look
-5. Synth audio
+3. Jev decision loop — done
+4. Vector look — done
+5. Synth audio — current
 6. Vercel deploy

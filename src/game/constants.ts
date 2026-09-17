@@ -36,10 +36,12 @@ export const HEALTH = 4;
 
 export const STORAGE_KEYS = {
   doctrineId: 'doctrine.enemyId',
+  brain: 'doctrine.brain',
   mute: 'doctrine.mute',
 } as const;
 
 export type DoctrineId = 'cautious' | 'berserker' | 'ambusher';
+export type BrainMode = 'local' | 'jev';
 
 export interface DoctrineDef {
   id: DoctrineId;
@@ -82,6 +84,40 @@ export function loadDoctrineId(): DoctrineId {
 export function saveDoctrineId(id: DoctrineId): void {
   try {
     localStorage.setItem(STORAGE_KEYS.doctrineId, id);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadBrainMode(): BrainMode {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.brain);
+    if (raw === 'local' || raw === 'jev') return raw;
+  } catch {
+    /* ignore */
+  }
+  return 'jev';
+}
+
+export function saveBrainMode(mode: BrainMode): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.brain, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadMute(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.mute) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveMute(muted: boolean): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.mute, muted ? '1' : '0');
   } catch {
     /* ignore */
   }

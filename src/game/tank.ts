@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { COLORS, HEALTH, RELOAD, TANK } from './constants';
 import { raycastForward } from './arena';
+import { enableGlowBlend, glowArc, glowPoly, glowSeg } from '../render/vector';
 
 export type TankSide = 'player' | 'enemy';
 
@@ -63,6 +64,7 @@ export class Tank {
 
     this.gfx = scene.add.graphics();
     this.gfx.setDepth(10);
+    enableGlowBlend(this.gfx);
   }
 
   get x(): number {
@@ -228,7 +230,6 @@ export class Tank {
     const y = this.y;
     const c = this.color;
 
-    // Hull rectangle with tread lines
     const hw = TANK.width / 2;
     const hh = TANK.height / 2;
     const corners = [
@@ -238,16 +239,18 @@ export class Tank {
       { x: -hw, y: hh },
     ].map((p) => rotate(p.x, p.y, this.hullAngle));
 
-    strokePoly(g, corners.map((p) => ({ x: x + p.x, y: y + p.y })), c);
+    glowPoly(
+      g,
+      corners.map((p) => ({ x: x + p.x, y: y + p.y })),
+      c,
+    );
 
-    // Tread lines
     for (const sy of [-hh * 0.55, hh * 0.55]) {
       const a = rotate(-hw * 0.7, sy, this.hullAngle);
       const b = rotate(hw * 0.7, sy, this.hullAngle);
-      strokeSeg(g, x + a.x, y + a.y, x + b.x, y + b.y, c);
+      glowSeg(g, x + a.x, y + a.y, x + b.x, y + b.y, c);
     }
 
-    // Turret square + barrel
     const tw = 10;
     const tCorners = [
       { x: -tw, y: -tw },
@@ -255,29 +258,28 @@ export class Tank {
       { x: tw, y: tw },
       { x: -tw, y: tw },
     ].map((p) => rotate(p.x, p.y, this.turretAngle));
-    strokePoly(g, tCorners.map((p) => ({ x: x + p.x, y: y + p.y })), c);
+    glowPoly(
+      g,
+      tCorners.map((p) => ({ x: x + p.x, y: y + p.y })),
+      c,
+    );
 
     const bx0 = x + Math.cos(this.turretAngle) * 8;
     const by0 = y + Math.sin(this.turretAngle) * 8;
     const bx1 = x + Math.cos(this.turretAngle) * TANK.barrelLength;
     const by1 = y + Math.sin(this.turretAngle) * TANK.barrelLength;
-    strokeSeg(g, bx0, by0, bx1, by1, c);
+    glowSeg(g, bx0, by0, bx1, by1, c);
 
-    // Reload arc (player only visual for now — both get it lightly)
     if (this.side === 'player' && this.reloadLeft > 0) {
       const t = 1 - this.reloadLeft / this.reloadTime;
-      g.lineStyle(2, c, 0.5);
-      g.beginPath();
-      g.arc(x, y, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t, false);
-      g.strokePath();
+      glowArc(g, x, y, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t, c, 0.7);
     }
 
-    // Muzzle flash
     if (this.muzzleFlash > 0) {
       const len = 18 + this.muzzleFlash * 40;
       for (const off of [-0.35, 0, 0.35]) {
         const a = this.turretAngle + off;
-        strokeSeg(
+        glowSeg(
           g,
           bx1,
           by1,
@@ -299,34 +301,4 @@ function rotate(x: number, y: number, a: number): { x: number; y: number } {
   const c = Math.cos(a);
   const s = Math.sin(a);
   return { x: x * c - y * s, y: x * s + y * c };
-}
-
-/** Milestone 1 placeholder glow: bright stroke only. Full glow in M4. */
-function strokeSeg(
-  g: Phaser.GameObjects.Graphics,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  color: number,
-): void {
-  g.lineStyle(1.5, color, 1);
-  g.beginPath();
-  g.moveTo(x0, y0);
-  g.lineTo(x1, y1);
-  g.strokePath();
-}
-
-function strokePoly(
-  g: Phaser.GameObjects.Graphics,
-  pts: { x: number; y: number }[],
-  color: number,
-): void {
-  if (pts.length < 2) return;
-  g.lineStyle(1.5, color, 1);
-  g.beginPath();
-  g.moveTo(pts[0]!.x, pts[0]!.y);
-  for (let i = 1; i < pts.length; i++) g.lineTo(pts[i]!.x, pts[i]!.y);
-  g.closePath();
-  g.strokePath();
 }

@@ -3,14 +3,20 @@ import {
   COLORS,
   WORLD_H,
   WORLD_W,
+  TANK,
   type DoctrineId,
+  type BrainMode,
   doctrineById,
+  loadBrainMode,
+  loadMute,
+  saveMute,
 } from '../game/constants';
 import {
   COVER_LAYOUT,
   ENEMY_SPAWN,
   PLAYER_SPAWN,
   createArenaBodies,
+  nearestCoverSpot,
   segmentHitsAabb,
 } from '../game/arena';
 import { Tank } from '../game/tank';
@@ -18,15 +24,20 @@ import { Shell } from '../game/shell';
 import { EnemyBrain } from '../game/enemyBrain';
 import { TwinStickInput } from '../input/touch';
 import { DesktopInput } from '../input/desktop';
-import { drawBasicHud } from '../render/hud';
+import { drawHud, HUD_MUTE_ZONE } from '../render/hud';
 import { vibrate, prefersReducedMotion } from '../game/haptics';
 import { synth } from '../audio/synth';
 import { describe } from '../game/describe';
 import { EventLog } from '../game/eventlog';
 import { DebugOverlay } from '../debug/overlay';
+import { ParticleSystem } from '../render/particles';
+import { IntentVectors } from '../render/intent';
+import { enableGlowBlend, glowRect, glowSeg } from '../render/vector';
+import type { ManeuverId } from '../game/maneuvers';
 
 export interface ArenaData {
   doctrineId: DoctrineId;
+  brain?: BrainMode;
 }
 
 export class Arena extends Phaser.Scene {
@@ -35,10 +46,10 @@ export class Arena extends Phaser.Scene {
   private shells: Shell[] = [];
   private brain = new EnemyBrain();
   private doctrineId: DoctrineId = 'cautious';
+  private brainMode: BrainMode = 'jev';
   private arenaGfx!: Phaser.GameObjects.Graphics;
   private stickGfx!: Phaser.GameObjects.Graphics;
   private hudGfx!: Phaser.GameObjects.Graphics;
-  private hudText!: Phaser.GameObjects.Text;
   private touch!: TwinStickInput;
   private desktop!: DesktopInput;
   private coverGroup!: Phaser.Physics.Arcade.StaticGroup;
@@ -48,6 +59,10 @@ export class Arena extends Phaser.Scene {
   private eventLog = new EventLog();
   private debug!: DebugOverlay;
   private currentState: ReturnType<typeof describe> | null = null;
+  private particles!: ParticleSystem;
+  private intents!: IntentVectors;
+  private lastManeuver: ManeuverId | null = null;
+  private muted = false;
 
   constructor() {
     super('Arena');
@@ -55,11 +70,15 @@ export class Arena extends Phaser.Scene {
 
   init(data: ArenaData): void {
     this.doctrineId = data.doctrineId ?? 'cautious';
+    this.brainMode = data.brain ?? loadBrainMode();
     this.ended = false;
     this.shells = [];
     this.elapsed = 0;
     this.eventLog.clear();
     this.currentState = null;
+    this.lastManeuver = null;
+    this.muted = loadMute();
+    synth.setMuted(this.muted);
   }
 
   create(): void {
@@ -68,9 +87,12 @@ export class Arena extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
     this.arenaGfx = this.add.graphics().setDepth(0);
+    enableGlowBlend(this.arenaGfx);
     this.drawArena();
 
     this.coverGroup = createArenaBodies(this);
+    this.particles = new ParticleSystem(this);
+    this.intents = new IntentVectors(this);
 
     this.player = new Tank(
       this,
@@ -93,6 +115,7 @@ export class Arena extends Phaser.Scene {
 
     this.brain = new EnemyBrain();
     this.brain.setDoctrine(this.doctrineId);
+    this.brain.setBrainMode(this.brainMode);
 
     const parent = (this.game.canvas.parentElement ?? document.body) as HTMLElement;
     this.touch = new TwinStickInput(parent);
@@ -123,21 +146,34 @@ export class Arena extends Phaser.Scene {
     this.input.addPointer(2);
 
     this.stickGfx = this.add.graphics().setScrollFactor(0).setDepth(100);
+    enableGlowBlend(this.stickGfx);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(90);
-    this.hudText = this.add
-      .text(WORLD_W / 2, 40, '', {
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        color: '#D9F2E6',
-      })
-      .setOrigin(0.5, 0)
+    enableGlowBlend(this.hudGfx);
+
+    this.add
+      .zone(HUD_MUTE_ZONE.x, HUD_MUTE_ZONE.y + 6, HUD_MUTE_ZONE.w, HUD_MUTE_ZONE.h)
       .setScrollFactor(0)
-      .setDepth(91);
+      .setDepth(95)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.toggleMute());
+
+    this.input.keyboard?.on('keydown-M', () => this.toggleMute());
+
+    synth.unlock();
+    synth.startEngines();
 
     this.events.once('shutdown', () => this.cleanup());
     this.events.once('destroy', () => this.cleanup());
 
     document.addEventListener('visibilitychange', this.onVisibility);
+  }
+
+  private toggleMute(): void {
+    synth.unlock();
+    this.muted = !this.muted;
+    synth.setMuted(this.muted);
+    saveMute(this.muted);
+    if (!this.muted) synth.uiTap();
   }
 
   private onVisibility = (): void => {
@@ -152,9 +188,13 @@ export class Arena extends Phaser.Scene {
 
   private cleanup(): void {
     document.removeEventListener('visibilitychange', this.onVisibility);
+    this.input.keyboard?.off('keydown-M');
+    synth.stopEngines();
     this.touch?.detach();
     this.desktop?.detach();
     this.debug?.destroy();
+    this.particles?.destroy();
+    this.intents?.destroy();
     for (const s of this.shells) s.destroy();
     this.shells = [];
   }
@@ -163,26 +203,18 @@ export class Arena extends Phaser.Scene {
     const g = this.arenaGfx;
     g.clear();
 
-    g.lineStyle(1, COLORS.grid, 0.25);
+    // Faint grid
     for (let x = 0; x <= WORLD_W; x += 48) {
-      g.beginPath();
-      g.moveTo(x, 0);
-      g.lineTo(x, WORLD_H);
-      g.strokePath();
+      glowSeg(g, x, 0, x, WORLD_H, COLORS.grid, 0.35);
     }
     for (let y = 0; y <= WORLD_H; y += 48) {
-      g.beginPath();
-      g.moveTo(0, y);
-      g.lineTo(WORLD_W, y);
-      g.strokePath();
+      glowSeg(g, 0, y, WORLD_W, y, COLORS.grid, 0.35);
     }
 
-    g.lineStyle(1.5, COLORS.cover, 0.8);
-    g.strokeRect(12, 12, WORLD_W - 24, WORLD_H - 24);
+    glowRect(g, 12, 12, WORLD_W - 24, WORLD_H - 24, COLORS.cover, 0.85);
 
     for (const b of COVER_LAYOUT) {
-      g.lineStyle(1.5, COLORS.cover, 1);
-      g.strokeRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
+      glowRect(g, b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, COLORS.cover);
     }
   }
 
@@ -210,13 +242,34 @@ export class Arena extends Phaser.Scene {
     }
     this.wasPlayerReloading = this.player.reloading;
 
+    if (this.lastManeuver !== null && this.brain.maneuver !== this.lastManeuver) {
+      synth.maneuverChange(this.brain.maneuver);
+    }
+    this.lastManeuver = this.brain.maneuver;
+
+    this.updateEngines();
     this.updateShells(dt);
+    this.particles.update(dt);
+    this.updateIntents(dt);
     this.updateHud();
     this.drawSticks();
 
     if (this.player.health <= 0 || this.enemy.health <= 0) {
       this.endRound(this.enemy.health <= 0);
     }
+  }
+
+  private updateEngines(): void {
+    const pSpeed = Math.min(1, this.player.getSpeed() / TANK.maxSpeed);
+    const eSpeed = Math.min(1, this.enemy.getSpeed() / TANK.maxSpeed);
+    const pan = (this.enemy.x / WORLD_W) * 2 - 1;
+    synth.updateEngines(
+      pSpeed,
+      this.player.throttle,
+      eSpeed,
+      this.enemy.throttle,
+      pan,
+    );
   }
 
   private buildState() {
@@ -339,6 +392,7 @@ export class Arena extends Phaser.Scene {
 
       if (hitCover) {
         synth.hitCover();
+        this.particles.hitSparks(shell.x, shell.y, COLORS.cover);
         this.notePlayerShellEnd(shell);
         shell.destroy();
         continue;
@@ -355,9 +409,13 @@ export class Arena extends Phaser.Scene {
         synth.hitTank();
         vibrate(60);
         this.shake();
+        this.particles.hitSparks(shell.x, shell.y, COLORS.hit);
         if (shell.owner === 'player') this.eventLog.playerHitMe();
         shell.destroy();
-        if (target.health <= 0) synth.explode();
+        if (target.health <= 0) {
+          synth.explode();
+          this.particles.explode(target.x, target.y);
+        }
         continue;
       }
 
@@ -377,22 +435,61 @@ export class Arena extends Phaser.Scene {
     this.cameras.main.shake(120, 0.006);
   }
 
+  private updateIntents(dt: number): void {
+    if (!this.enemy.alive) {
+      this.intents.update(dt, {
+        x: this.enemy.x,
+        y: this.enemy.y,
+        playerX: this.player.x,
+        playerY: this.player.y,
+        coverX: this.enemy.x,
+        coverY: this.enemy.y,
+        flankSide: this.brain.flankSide,
+        probabilities: null,
+      });
+      return;
+    }
+    const spot = nearestCoverSpot(
+      this.enemy.x,
+      this.enemy.y,
+      this.player.x,
+      this.player.y,
+      COVER_LAYOUT,
+    );
+    const raw = this.brain.debug.lastAnswers?.maneuver.probabilities ?? null;
+    const probabilities = raw
+      ? (raw as Record<ManeuverId, number>)
+      : null;
+    this.intents.update(dt, {
+      x: this.enemy.x,
+      y: this.enemy.y,
+      playerX: this.player.x,
+      playerY: this.player.y,
+      coverX: spot.x,
+      coverY: spot.y,
+      flankSide: this.brain.flankSide,
+      probabilities,
+    });
+  }
+
   private updateHud(): void {
     const intent = this.brain.debug.lastAnswers?.player_intent.choice ?? 'unclear';
-    const conf = Math.round(
-      (this.brain.debug.lastAnswers?.player_intent.confidence ?? 0) * 100,
-    );
-    const latencyLabel = this.brain.debug.offline
-      ? 'JEV OFFLINE'
-      : this.brain.debug.latencyMs != null
-        ? `JEV ${Math.round(this.brain.debug.latencyMs)}MS`
-        : 'JEV …';
-    drawBasicHud(this.hudGfx, this.hudText, {
+    const conf = this.brain.debug.lastAnswers?.player_intent.confidence ?? 0;
+    const latencyLabel =
+      this.brainMode === 'local'
+        ? 'LOCAL BRAIN'
+        : this.brain.debug.offline
+          ? 'JEV OFFLINE'
+          : this.brain.debug.latencyMs != null
+            ? `JEV ${Math.round(this.brain.debug.latencyMs)}MS`
+            : 'JEV ...';
+    drawHud(this.hudGfx, {
       playerHp: this.player.health,
       enemyHp: this.enemy.health,
-      intentLabel: `ENEMY READS YOU AS: ${intent.toUpperCase()} ${conf}%`,
+      intentChoice: intent,
+      intentConfidence: conf,
       latencyLabel,
-      width: WORLD_W,
+      muted: this.muted,
     });
   }
 
@@ -413,14 +510,15 @@ export class Arena extends Phaser.Scene {
       const kx = (stick.x - rect.left) * sx;
       const ky = (stick.y - rect.top) * sy;
       const r = TwinStickInput.MAX_RADIUS * ((sx + sy) / 2);
+      g.lineStyle(6, color, 0.08);
+      g.strokeCircle(ox, oy, r);
       g.lineStyle(1.5, color, 0.35);
       g.strokeCircle(ox, oy, r);
+      glowSeg(g, ox, oy, kx, ky, color, 0.9);
+      g.lineStyle(6, color, 0.12);
+      g.strokeCircle(kx, ky, 14);
       g.lineStyle(1.5, color, 0.9);
       g.strokeCircle(kx, ky, 14);
-      g.beginPath();
-      g.moveTo(ox, oy);
-      g.lineTo(kx, ky);
-      g.strokePath();
     };
 
     drawOne(this.touch.move, COLORS.player);
@@ -430,10 +528,12 @@ export class Arena extends Phaser.Scene {
   private endRound(won: boolean): void {
     if (this.ended) return;
     this.ended = true;
+    synth.stopEngines();
     this.time.delayedCall(700, () => {
       this.scene.start('Result', {
         won,
         doctrineId: this.doctrineId,
+        brain: this.brainMode,
       });
     });
   }

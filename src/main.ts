@@ -3,6 +3,7 @@ import { COLORS, WORLD_H, WORLD_W } from './game/constants';
 import { Title } from './scenes/Title';
 import { Arena } from './scenes/Arena';
 import { Result } from './scenes/Result';
+import { GameChrome } from './render/chrome';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -30,7 +31,6 @@ const config: Phaser.Types.Core.GameConfig = {
   },
 };
 
-// Prevent default gestures on the canvas
 window.addEventListener(
   'touchmove',
   (e) => {
@@ -40,5 +40,10 @@ window.addEventListener(
   },
   { passive: false },
 );
+
+const parent = document.getElementById('game-container');
+if (parent) {
+  new GameChrome(parent);
+}
 
 new Phaser.Game(config);
