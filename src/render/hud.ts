@@ -8,6 +8,8 @@ export interface HudState {
   enemyHp: number;
   intentChoice: string;
   intentConfidence: number;
+  /** Full center intent line; falls back to YOU READ ENEMY AS if omitted. */
+  intentLabel?: string;
   latencyLabel: string;
   muted: boolean;
 }
@@ -19,8 +21,7 @@ export const HUD_MUTE_ZONE = { x: 52, y: 48, w: 88, h: 28 } as const;
 export const HUD_HOME_ZONE = { x: 148, y: 48, w: 88, h: 28 } as const;
 
 /**
- * Top bar — YOU is Jev-driven; ENEMY is a local doctrine state machine.
- * YOU |||| .... YOU READ ENEMY AS: CAMPING 72% .... JEV 94MS .... |||| ENEMY
+ * Top bar HUD.
  */
 export function drawHud(g: Phaser.GameObjects.Graphics, state: HudState): void {
   g.clear();
@@ -47,9 +48,11 @@ export function drawHud(g: Phaser.GameObjects.Graphics, state: HudState): void {
     alpha: 0.9,
   });
 
-  const intent = `YOU READ ENEMY AS: ${state.intentChoice.toUpperCase()} ${Math.round(state.intentConfidence * 100)}%`;
+  const intent =
+    state.intentLabel ??
+    `YOU READ ENEMY AS: ${state.intentChoice.toUpperCase()} ${Math.round(state.intentConfidence * 100)}%`;
   drawText(g, intent, WORLD_W / 2, y, {
-    size: 2.1,
+    size: 2.0,
     color: COLORS.enemy,
     align: 'center',
   });

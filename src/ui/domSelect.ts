@@ -1,8 +1,13 @@
 import { COLORS, WORLD_H, WORLD_W } from '../game/constants';
 
-/** DOM textarea overlaid on the Phaser canvas. */
-export class PromptBox {
-  readonly el: HTMLTextAreaElement;
+export interface DomSelectOption {
+  value: string;
+  label: string;
+}
+
+/** Styled HTML select overlaid on the Phaser canvas. */
+export class DomSelect {
+  readonly el: HTMLSelectElement;
   private host: HTMLElement;
   private gameX: number;
   private gameY: number;
@@ -11,16 +16,17 @@ export class PromptBox {
   private accent: number;
   private onResize = () => this.sync();
   private visible = false;
+  private onChangeCb: ((value: string) => void) | null = null;
 
   constructor(
     host: HTMLElement,
     opts: {
-      id: string;
       x: number;
       y: number;
       w: number;
       h: number;
-      maxLength: number;
+      options: DomSelectOption[];
+      value: string;
       accent?: number;
       ariaLabel?: string;
     },
@@ -32,45 +38,43 @@ export class PromptBox {
     this.gameH = opts.h;
     this.accent = opts.accent ?? COLORS.cover;
 
-    this.el = document.createElement('textarea');
-    this.el.id = opts.id;
-    this.el.maxLength = opts.maxLength;
-    this.el.spellcheck = false;
-    this.el.autocomplete = 'off';
-    this.el.setAttribute('aria-label', opts.ariaLabel ?? 'Jev doctrine prompt');
+    this.el = document.createElement('select');
+    this.el.setAttribute('aria-label', opts.ariaLabel ?? 'Controller');
+    for (const o of opts.options) {
+      const opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      this.el.appendChild(opt);
+    }
+    this.el.value = opts.value;
 
     const accentHex = `#${this.accent.toString(16).padStart(6, '0')}`;
     Object.assign(this.el.style, {
       position: 'fixed',
-      zIndex: '300',
+      zIndex: '310',
       display: 'none',
-      resize: 'none',
       boxSizing: 'border-box',
       margin: '0',
-      padding: '10px 12px',
+      padding: '4px 8px',
       background: '#000000',
       color: `#${COLORS.text.toString(16).padStart(6, '0')}`,
       border: `1px solid ${accentHex}`,
       outline: 'none',
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
       fontSize: '13px',
-      lineHeight: '1.35',
-      letterSpacing: '0.02em',
-      caretColor: accentHex,
-      WebkitUserSelect: 'text',
-      userSelect: 'text',
+      letterSpacing: '0.04em',
+      cursor: 'pointer',
+      WebkitUserSelect: 'none',
+      userSelect: 'none',
       touchAction: 'manipulation',
-      overscrollBehavior: 'contain',
     });
 
-    this.el.addEventListener('focus', () => {
-      this.el.style.borderColor = `#${COLORS.enemy.toString(16).padStart(6, '0')}`;
-    });
-    this.el.addEventListener('blur', () => {
-      this.el.style.borderColor = `#${this.accent.toString(16).padStart(6, '0')}`;
+    this.el.addEventListener('change', () => {
+      this.onChangeCb?.(this.el.value);
     });
     this.el.addEventListener('keydown', (e) => e.stopPropagation());
-    this.el.addEventListener('keyup', (e) => e.stopPropagation());
+    this.el.addEventListener('mousedown', (e) => e.stopPropagation());
+    this.el.addEventListener('pointerdown', (e) => e.stopPropagation());
 
     host.appendChild(this.el);
     window.addEventListener('resize', this.onResize);
@@ -84,12 +88,8 @@ export class PromptBox {
     this.el.value = v;
   }
 
-  setRect(x: number, y: number, w: number, h: number): void {
-    this.gameX = x;
-    this.gameY = y;
-    this.gameW = w;
-    this.gameH = h;
-    this.sync();
+  onChange(cb: (value: string) => void): void {
+    this.onChangeCb = cb;
   }
 
   show(): void {
@@ -100,7 +100,6 @@ export class PromptBox {
 
   hide(): void {
     this.visible = false;
-    this.el.blur();
     this.el.style.display = 'none';
   }
 
@@ -109,21 +108,12 @@ export class PromptBox {
     this.el.remove();
   }
 
-  isFocused(): boolean {
-    return document.activeElement === this.el;
-  }
-
-  blur(): void {
-    this.el.blur();
-  }
-
   private sync(): void {
     if (!this.visible) return;
     const canvas =
       this.host.querySelector('canvas') ??
       document.querySelector('#game-container canvas');
     if (!canvas) return;
-
     const rect = canvas.getBoundingClientRect();
     const sx = rect.width / WORLD_W;
     const sy = rect.height / WORLD_H;

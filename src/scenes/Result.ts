@@ -1,14 +1,16 @@
 import Phaser from 'phaser';
 import { COLORS } from '../game/constants';
-import type { DoctrineId } from '../game/constants';
+import type { ControllerId } from '../game/constants';
 import { synth } from '../audio/synth';
 import { drawText } from '../render/font';
 import { enableGlowBlend, glowRect } from '../render/vector';
 
 export interface ResultData {
   won: boolean;
-  doctrineId: DoctrineId;
-  doctrinePrompt?: string;
+  playerControl: ControllerId;
+  enemyControl: ControllerId;
+  playerPrompt?: string;
+  enemyPrompt?: string;
 }
 
 export class Result extends Phaser.Scene {
@@ -56,8 +58,10 @@ export class Result extends Phaser.Scene {
       .on('pointerdown', () => {
         synth.uiTap();
         this.scene.start('Arena', {
-          doctrineId: this.result.doctrineId,
-          doctrinePrompt: this.result.doctrinePrompt,
+          playerControl: this.result.playerControl,
+          enemyControl: this.result.enemyControl,
+          playerPrompt: this.result.playerPrompt,
+          enemyPrompt: this.result.enemyPrompt,
         });
       });
 

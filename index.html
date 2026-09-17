@@ -39,9 +39,16 @@
         display: block;
         touch-action: none;
       }
-      #doctrine-prompt {
+      #doctrine-prompt,
+      #doctrine-prompt-player,
+      #doctrine-prompt-enemy {
         -webkit-user-select: text;
         user-select: text;
+        touch-action: manipulation;
+      }
+      #game-container select {
+        -webkit-user-select: none;
+        user-select: none;
         touch-action: manipulation;
       }
       #doctrine-guide {

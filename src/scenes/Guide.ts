@@ -125,8 +125,10 @@ export class Guide extends Phaser.Scene {
 </style>
 
 <h2>ROLES</h2>
-<p><strong>You</strong> are driven by <strong>Jev</strong> using your prompt as <code>doctrine</code>. You do not steer with WASD — you write doctrine and watch.</p>
-<p><strong>Enemy</strong> is one of three local state machines. Never Jev.</p>
+<p>Each side picks a controller: <strong>Human</strong>, a local preset (<strong>Cautious</strong> / <strong>Berserker</strong> / <strong>Ambusher</strong>), or <strong>Jev</strong>.</p>
+<p><strong>Human YOU</strong> — WASD drive, mouse aim, click fire. <strong>Human ENEMY</strong> — arrow keys drive, auto-aim, Enter fire.</p>
+<p><strong>Jev</strong> — driven by that side's prompt (<code>doctrine</code>). Two Jevs can face off with two prompts.</p>
+<p>In the payload, <code>self</code> is the Jev tank being controlled. The field named <code>player</code> is always the opponent.</p>
 
 <h2>WHAT JEV SEES</h2>
 <p class="muted">Numbers become words. Jev never gets raw coordinates or timers.</p>

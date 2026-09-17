@@ -35,12 +35,20 @@ export const RELOAD = {
 export const HEALTH = 4;
 
 export const STORAGE_KEYS = {
+  playerControl: 'doctrine.playerControl',
+  enemyControl: 'doctrine.enemyControl',
+  playerPrompt: 'doctrine.playerPrompt',
+  enemyPrompt: 'doctrine.enemyPrompt',
+  /** @deprecated migrated once into enemyControl */
   doctrineId: 'doctrine.enemyId',
   mute: 'doctrine.mute',
   prompt: 'doctrine.prompt',
 } as const;
 
 export type DoctrineId = 'cautious' | 'berserker' | 'ambusher';
+
+/** Per-side controller: human, local preset, or Jev. */
+export type ControllerId = 'human' | 'jev' | DoctrineId;
 
 export interface DoctrineDef {
   id: DoctrineId;
@@ -69,9 +77,16 @@ export const DOCTRINES: DoctrineDef[] = [
   },
 ];
 
+export const CONTROLLER_OPTIONS: { id: ControllerId; label: string }[] = [
+  { id: 'human', label: 'Human' },
+  { id: 'cautious', label: 'Cautious veteran' },
+  { id: 'berserker', label: 'Berserker' },
+  { id: 'ambusher', label: 'Ambusher' },
+  { id: 'jev', label: 'Jev' },
+];
+
 /**
- * Default player-side doctrine for Jev.
- * Grounded in symbolic state + maneuver/aggression questions (`follow: doctrine`).
+ * Default Jev doctrine — grounded in symbolic state + maneuvers.
  * Does not mention aim/fire — code owns those.
  */
 export const DEFAULT_JEV_PROMPT =
@@ -81,22 +96,72 @@ export function doctrineById(id: string | null | undefined): DoctrineDef {
   return DOCTRINES.find((d) => d.id === id) ?? DOCTRINES[0]!;
 }
 
-export function loadDoctrineId(): DoctrineId {
+export function isDoctrineId(v: string): v is DoctrineId {
+  return v === 'cautious' || v === 'berserker' || v === 'ambusher';
+}
+
+export function isControllerId(v: string): v is ControllerId {
+  return v === 'human' || v === 'jev' || isDoctrineId(v);
+}
+
+export function isLocalControl(c: ControllerId): c is DoctrineId {
+  return isDoctrineId(c);
+}
+
+function readControl(key: string, fallback: ControllerId): ControllerId {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.doctrineId);
-    if (raw === 'cautious' || raw === 'berserker' || raw === 'ambusher') return raw;
+    const raw = localStorage.getItem(key);
+    if (raw && isControllerId(raw)) return raw;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
+export function loadPlayerControl(): ControllerId {
+  const v = readControl(STORAGE_KEYS.playerControl, 'jev');
+  // One-time migrate from old single prompt era stays Jev for player
+  return v;
+}
+
+export function savePlayerControl(id: ControllerId): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.playerControl, id);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadEnemyControl(): ControllerId {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.enemyControl);
+    if (raw && isControllerId(raw)) return raw;
+    // Migrate old enemy doctrine id
+    const old = localStorage.getItem(STORAGE_KEYS.doctrineId);
+    if (old && isDoctrineId(old)) return old;
   } catch {
     /* ignore */
   }
   return 'cautious';
 }
 
-export function saveDoctrineId(id: DoctrineId): void {
+export function saveEnemyControl(id: ControllerId): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.doctrineId, id);
+    localStorage.setItem(STORAGE_KEYS.enemyControl, id);
   } catch {
     /* ignore */
   }
+}
+
+/** @deprecated — use loadEnemyControl */
+export function loadDoctrineId(): DoctrineId {
+  const c = loadEnemyControl();
+  return isDoctrineId(c) ? c : 'cautious';
+}
+
+/** @deprecated — use saveEnemyControl */
+export function saveDoctrineId(id: DoctrineId): void {
+  saveEnemyControl(id);
 }
 
 export function loadMute(): boolean {
@@ -119,20 +184,50 @@ export function clampPrompt(text: string): string {
   return text.trim().slice(0, PROMPT_MAX_LEN) || DEFAULT_JEV_PROMPT;
 }
 
-export function loadPrompt(_fallbackDoctrineId?: DoctrineId): string {
+function loadPromptKey(key: string, legacyKey?: string): string {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.prompt);
+    const raw = localStorage.getItem(key);
     if (raw && raw.trim()) return clampPrompt(raw);
+    if (legacyKey) {
+      const legacy = localStorage.getItem(legacyKey);
+      if (legacy && legacy.trim()) return clampPrompt(legacy);
+    }
   } catch {
     /* ignore */
   }
   return DEFAULT_JEV_PROMPT;
 }
 
-export function savePrompt(text: string): void {
+export function loadPlayerPrompt(): string {
+  return loadPromptKey(STORAGE_KEYS.playerPrompt, STORAGE_KEYS.prompt);
+}
+
+export function savePlayerPrompt(text: string): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.prompt, clampPrompt(text));
+    localStorage.setItem(STORAGE_KEYS.playerPrompt, clampPrompt(text));
   } catch {
     /* ignore */
   }
+}
+
+export function loadEnemyPrompt(): string {
+  return loadPromptKey(STORAGE_KEYS.enemyPrompt);
+}
+
+export function saveEnemyPrompt(text: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.enemyPrompt, clampPrompt(text));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** @deprecated */
+export function loadPrompt(): string {
+  return loadPlayerPrompt();
+}
+
+/** @deprecated */
+export function savePrompt(text: string): void {
+  savePlayerPrompt(text);
 }
