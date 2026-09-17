@@ -188,17 +188,21 @@ export class Arena extends Phaser.Scene {
   private applyPlayerInput(): void {
     const move = this.touch.move;
     const aim = this.touch.aim;
-    const desk = this.desktop.moveVector();
+    const desk = this.desktop.drive();
+    const dz = TwinStickInput.DEADZONE;
 
-    if (move.active && move.magnitude > TwinStickInput.DEADZONE) {
-      this.player.setMoveIntent(Math.atan2(move.ny, move.nx), move.magnitude);
-    } else if (desk.throttle > 0) {
-      this.player.setMoveIntent(Math.atan2(desk.y, desk.x), desk.throttle);
+    if (move.active && move.magnitude > dz) {
+      // Stick relative to hull: up=forward, down=reverse, x=turn
+      const turn = Math.abs(move.nx) > dz ? move.nx : 0;
+      const throttle = Math.abs(move.ny) > dz ? -move.ny : 0;
+      this.player.setRelativeDrive(turn, throttle);
+    } else if (desk.turn !== 0 || desk.throttle !== 0) {
+      this.player.setRelativeDrive(desk.turn, desk.throttle);
     } else {
-      this.player.setMoveIntent(this.player.desiredHeading, 0);
+      this.player.setRelativeDrive(0, 0);
     }
 
-    if (aim.active && aim.magnitude > TwinStickInput.DEADZONE) {
+    if (aim.active && aim.magnitude > dz) {
       this.player.setAimAngle(Math.atan2(aim.ny, aim.nx));
     } else {
       const cam = this.cameras.main;

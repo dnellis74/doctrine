@@ -62,19 +62,15 @@ export class DesktopInput {
     return true;
   }
 
-  moveVector(): { x: number; y: number; throttle: number } {
-    let x = 0;
-    let y = 0;
-    if (this.state.left) x -= 1;
-    if (this.state.right) x += 1;
-    if (this.state.up) y -= 1;
-    if (this.state.down) y += 1;
-    const len = Math.hypot(x, y);
-    if (len > 0) {
-      x /= len;
-      y /= len;
-    }
-    return { x, y, throttle: len > 0 ? 1 : 0 };
+  /** Tank-relative: turn -1..1 (left/right), throttle -1..1 (reverse/forward). */
+  drive(): { turn: number; throttle: number } {
+    let turn = 0;
+    let throttle = 0;
+    if (this.state.left) turn -= 1;
+    if (this.state.right) turn += 1;
+    if (this.state.up) throttle += 1;
+    if (this.state.down) throttle -= 1;
+    return { turn, throttle };
   }
 
   private key(e: KeyboardEvent, down: boolean): void {

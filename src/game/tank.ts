@@ -30,7 +30,11 @@ export class Tank {
   hullAngle = 0;
   turretAngle = 0;
   desiredHeading = 0;
+  /** Signed throttle: +forward, -reverse. Absolute mode uses 0..1. */
   throttle = 0;
+  /** Relative turn input: -1 left .. +1 right. Used when driveMode is relative. */
+  turnInput = 0;
+  driveMode: 'absolute' | 'relative' = 'absolute';
   health = HEALTH;
   reloadLeft = 0;
   reloadTime: number;
@@ -107,9 +111,23 @@ export class Tank {
     };
   }
 
+  /** AI / absolute: face a world heading, drive forward when aligned. */
   setMoveIntent(heading: number, throttle: number): void {
+    this.driveMode = 'absolute';
     this.desiredHeading = heading;
+    this.turnInput = 0;
     this.throttle = Phaser.Math.Clamp(throttle, 0, 1);
+  }
+
+  /**
+   * Player tank controls: turn and throttle relative to the hull.
+   * turn: -1 left .. +1 right; throttle: -1 reverse .. +1 forward.
+   */
+  setRelativeDrive(turn: number, throttle: number): void {
+    this.driveMode = 'relative';
+    this.turnInput = Phaser.Math.Clamp(turn, -1, 1);
+    this.throttle = Phaser.Math.Clamp(throttle, -1, 1);
+    this.desiredHeading = this.hullAngle;
   }
 
   setAim(worldX: number, worldY: number): void {
@@ -147,25 +165,44 @@ export class Tank {
     if (this.reloadLeft > 0) this.reloadLeft = Math.max(0, this.reloadLeft - dt);
     if (this.muzzleFlash > 0) this.muzzleFlash = Math.max(0, this.muzzleFlash - dt);
 
-    // Hull turns toward desired heading
-    const err = Phaser.Math.Angle.Wrap(this.desiredHeading - this.hullAngle);
-    const maxTurn = TANK.hullTurnRate * dt;
-    this.hullAngle += Phaser.Math.Clamp(err, -maxTurn, maxTurn);
-
-    // Drive forward only when heading error under 60°
-    const headingErr = Math.abs(Phaser.Math.Angle.Wrap(this.desiredHeading - this.hullAngle));
     let speed = 0;
-    if (headingErr < TANK.driveAngleLimit && this.throttle > 0.05) {
-      speed = TANK.maxSpeed * this.throttle * this.speedMul;
-    }
+    const maxTurn = TANK.hullTurnRate * dt;
 
-    // Obstacle avoidance: if forward probe hits, add perpendicular steer
-    if (speed > 0 && raycastForward(this.x, this.y, this.hullAngle, 56)) {
-      const leftClear = !raycastForward(this.x, this.y, this.hullAngle - 0.7, 56);
-      const rightClear = !raycastForward(this.x, this.y, this.hullAngle + 0.7, 56);
-      const side = leftClear && !rightClear ? -1 : rightClear && !leftClear ? 1 : Math.sign(err) || 1;
-      this.desiredHeading = this.hullAngle + side * 0.9;
-      speed *= 0.45;
+    if (this.driveMode === 'relative') {
+      this.hullAngle += this.turnInput * TANK.hullTurnRate * dt;
+      if (Math.abs(this.throttle) > 0.05) {
+        speed = TANK.maxSpeed * this.throttle * this.speedMul;
+      }
+      this.desiredHeading = this.hullAngle;
+
+      // Obstacle avoidance along travel direction
+      const travelAngle = speed >= 0 ? this.hullAngle : this.hullAngle + Math.PI;
+      if (Math.abs(speed) > 0 && raycastForward(this.x, this.y, travelAngle, 56)) {
+        const leftClear = !raycastForward(this.x, this.y, travelAngle - 0.7, 56);
+        const rightClear = !raycastForward(this.x, this.y, travelAngle + 0.7, 56);
+        const side =
+          leftClear && !rightClear ? -1 : rightClear && !leftClear ? 1 : Math.sign(this.turnInput) || 1;
+        this.hullAngle += side * 0.9 * dt * 2;
+        speed *= 0.45;
+      }
+    } else {
+      // Absolute: hull turns toward desired heading
+      const err = Phaser.Math.Angle.Wrap(this.desiredHeading - this.hullAngle);
+      this.hullAngle += Phaser.Math.Clamp(err, -maxTurn, maxTurn);
+
+      // Drive forward only when heading error under 60°
+      const headingErr = Math.abs(Phaser.Math.Angle.Wrap(this.desiredHeading - this.hullAngle));
+      if (headingErr < TANK.driveAngleLimit && this.throttle > 0.05) {
+        speed = TANK.maxSpeed * this.throttle * this.speedMul;
+      }
+
+      if (speed > 0 && raycastForward(this.x, this.y, this.hullAngle, 56)) {
+        const leftClear = !raycastForward(this.x, this.y, this.hullAngle - 0.7, 56);
+        const rightClear = !raycastForward(this.x, this.y, this.hullAngle + 0.7, 56);
+        const side = leftClear && !rightClear ? -1 : rightClear && !leftClear ? 1 : Math.sign(err) || 1;
+        this.desiredHeading = this.hullAngle + side * 0.9;
+        speed *= 0.45;
+      }
     }
 
     this.physicsBody.setVelocity(
