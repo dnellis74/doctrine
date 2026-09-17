@@ -6,7 +6,7 @@ import { drawText } from '../render/font';
 import { enableGlowBlend, glowRect } from '../render/vector';
 
 export interface ResultData {
-  won: boolean;
+  outcome: 'win' | 'lose' | 'tie';
   playerControl: ControllerId;
   enemyControl: ControllerId;
   playerPrompt?: string;
@@ -28,16 +28,30 @@ export class Result extends Phaser.Scene {
     const { width, height } = this.scale;
     this.cameras.main.setBackgroundColor(COLORS.void);
 
-    if (this.result.won) synth.win();
-    else synth.lose();
+    if (this.result.outcome === 'win') synth.win();
+    else if (this.result.outcome === 'lose') synth.lose();
+    else synth.tie();
 
     const g = this.add.graphics();
     enableGlowBlend(g);
     glowRect(g, 40, 24, width - 80, height - 48, COLORS.grid, 0.45);
 
-    drawText(g, this.result.won ? 'VICTORY' : 'DEFEAT', width / 2, height * 0.32, {
+    const title =
+      this.result.outcome === 'win'
+        ? 'VICTORY'
+        : this.result.outcome === 'lose'
+          ? 'DEFEAT'
+          : 'DRAW';
+    const color =
+      this.result.outcome === 'win'
+        ? COLORS.player
+        : this.result.outcome === 'lose'
+          ? COLORS.hit
+          : COLORS.enemy;
+
+    drawText(g, title, width / 2, height * 0.32, {
       size: 7,
-      color: this.result.won ? COLORS.player : COLORS.hit,
+      color,
       align: 'center',
     });
 

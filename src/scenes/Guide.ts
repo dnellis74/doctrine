@@ -122,55 +122,58 @@ export class Guide extends Phaser.Scene {
   #doctrine-guide code { color: #6FE3FF; font-size: 12px; }
   #doctrine-guide .muted { color: #3E8C84; }
   #doctrine-guide strong { color: #FFB347; font-weight: 600; }
+  #doctrine-guide table { width: 100%; border-collapse: collapse; margin: 0 0 12px; font-size: 12px; }
+  #doctrine-guide th, #doctrine-guide td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #0E2A2E; vertical-align: top; }
+  #doctrine-guide th { color: #3E8C84; font-weight: 600; letter-spacing: 0.06em; }
+  #doctrine-guide td:first-child { color: #6FE3FF; white-space: nowrap; width: 7.5em; }
 </style>
 
+<h2>WHAT JEV CHOOSES</h2>
+<p>Each decision tick, Jev answers three typed questions. Your prompt (<code>doctrine</code>) steers <strong>maneuver</strong> and <strong>aggression</strong>. Code aims and fires — Jev never picks those.</p>
+
+<h2>MANEUVER</h2>
+<p class="muted">Moves the tank. This is the main thing your prompt should talk about.</p>
+<table>
+  <tr><th>Choice</th><th>Meaning</th></tr>
+  <tr><td><code>advance</code></td><td>Close distance on the opponent</td></tr>
+  <tr><td><code>retreat</code></td><td>Move away (not “go to a cover spot”)</td></tr>
+  <tr><td><code>take_cover</code></td><td>Move to <code>self.nearest_cover</code></td></tr>
+  <tr><td><code>flank</code></td><td>Circle sideways around the opponent</td></tr>
+  <tr><td><code>hold</code></td><td>Stay put</td></tr>
+</table>
+
+<h2>AGGRESSION</h2>
+<p class="muted">Score 0–2. Scales how hard the tank presses (speed / pressure).</p>
+<table>
+  <tr><th>Score</th><th>Label</th></tr>
+  <tr><td><code>0</code></td><td>Avoid combat</td></tr>
+  <tr><td><code>1</code></td><td>Trade shots cautiously</td></tr>
+  <tr><td><code>2</code></td><td>Press the attack</td></tr>
+</table>
+
+<h2>OPPONENT INTENT</h2>
+<p class="muted">Read from recent actions. Shown on the HUD; does not steer the tank directly.</p>
+<table>
+  <tr><th>Choice</th><th>Meaning</th></tr>
+  <tr><td><code>rushing</code></td><td>Closing distance aggressively</td></tr>
+  <tr><td><code>camping</code></td><td>Waiting in cover</td></tr>
+  <tr><td><code>fleeing</code></td><td>Breaking contact</td></tr>
+  <tr><td><code>unclear</code></td><td>No clear pattern yet</td></tr>
+</table>
+
 <h2>ROLES</h2>
-<p>Each side picks a controller: <strong>Human</strong>, a local preset (<strong>Cautious</strong> / <strong>Berserker</strong> / <strong>Ambusher</strong>), or <strong>Jev</strong>.</p>
-<p><strong>Human YOU</strong> — WASD drive, mouse aim, click fire. <strong>Human ENEMY</strong> — arrow keys drive, auto-aim, Enter fire.</p>
-<p><strong>Jev</strong> — driven by that side's prompt (<code>doctrine</code>). Two Jevs can face off with two prompts.</p>
-<p>In the payload, <code>self</code> is the Jev tank being controlled. The field named <code>player</code> is always the opponent.</p>
+<p>Each side: <strong>Human</strong>, a local preset, or <strong>Jev</strong> (with its own prompt). Two Jevs can face off.</p>
+<p><strong>Human YOU</strong> — WASD, mouse aim, click fire. <strong>Human ENEMY</strong> — arrows, auto-aim, Enter fire.</p>
 
 <h2>WHAT JEV SEES</h2>
-<p class="muted">Numbers become words. Jev never gets raw coordinates or timers.</p>
-<p>In the payload, <code>self</code> is <strong>your</strong> tank. The field named <code>player</code> is the <strong>enemy</strong> (the opponent).</p>
-
-<h2>SELF (YOU)</h2>
+<p class="muted">Symbolic words only — no raw coordinates. <code>self</code> is the Jev tank; <code>player</code> is the opponent.</p>
 <ul>
-  <li><code>health</code> — <code>low</code> (1 HP), <code>half</code> (2), <code>high</code> (3–4)</li>
-  <li><code>reloading</code> — cannon cooling down</li>
-  <li><code>in_cover</code> — no line of sight to the enemy (blocked by geometry)</li>
-  <li><code>nearest_cover</code> — compass + distance band toward a safer spot (e.g. <code>north-west, medium</code>)</li>
+  <li><code>self</code> — <code>health</code> (low / half / high), <code>reloading</code>, <code>in_cover</code>, <code>nearest_cover</code></li>
+  <li><code>player</code> — <code>direction</code>, <code>distance</code> (close / medium / far), <code>health</code>, <code>in_cover</code>, <code>reloading</code>, <code>moving</code></li>
+  <li><code>line_of_sight</code>, <code>recent_player_actions</code>, <code>doctrine</code></li>
 </ul>
 
-<h2>PLAYER FIELD (ENEMY)</h2>
-<ul>
-  <li><code>direction</code> — 8-way compass from you to them</li>
-  <li><code>distance</code> — <code>close</code> / <code>medium</code> / <code>far</code></li>
-  <li><code>health</code> — same bands as you</li>
-  <li><code>in_cover</code> — they have no LoS to you (same geometry test)</li>
-  <li><code>reloading</code></li>
-  <li><code>moving</code> — <code>toward me</code>, <code>away from me</code>, <code>still</code>, or <code>sideways</code></li>
-</ul>
-
-<h2>SHARED</h2>
-<ul>
-  <li><code>line_of_sight</code> — clear shot between tanks</li>
-  <li><code>recent_player_actions</code> — last few enemy verbs (moved toward me, fired, hit me, entered cover, …)</li>
-  <li><code>doctrine</code> — your prompt text</li>
-</ul>
-
-<h2>JEV ANSWERS</h2>
-<p>Jev picks a <strong>maneuver</strong> (code then aims and fires):</p>
-<ul>
-  <li><code>advance</code> — close distance</li>
-  <li><code>retreat</code> — open space away</li>
-  <li><code>take_cover</code> — move to nearest cover</li>
-  <li><code>flank</code> — circle sideways</li>
-  <li><code>hold</code> — stay put</li>
-</ul>
-<p>Also scores <strong>aggression</strong> (avoid / trade / press) and reads enemy <strong>intent</strong> (rushing / camping / fleeing / unclear) for the HUD.</p>
-
-<h2>ENEMY MACHINES</h2>
+<h2>LOCAL PRESETS</h2>
 <ul>${enemyList}</ul>
 `;
 

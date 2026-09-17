@@ -163,9 +163,13 @@ export class Title extends Phaser.Scene {
       .zone(width / 2, height * 0.84 + 10, 480, 44)
       .setInteractive({ useHandCursor: true });
 
+    let starting = false;
     const go = () => {
-      if (this.anyPromptFocused()) return;
+      if (starting) return;
+      starting = true;
       this.blurPrompts();
+      this.playerSelect?.el.blur();
+      this.enemySelect?.el.blur();
       synth.unlock();
       synth.uiTap();
       this.persistAll();
@@ -175,8 +179,30 @@ export class Title extends Phaser.Scene {
     };
 
     startZone.on('pointerdown', go);
+
+    // First click after focusing a textarea often only blurs DOM and never
+    // reaches Phaser zones — handle Start on the canvas directly.
+    const onCanvasPointer = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const canvas = this.game.canvas;
+      if (e.target !== canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * width;
+      const y = ((e.clientY - rect.top) / rect.height) * height;
+      if (Math.abs(x - width / 2) <= 240 && Math.abs(y - (height * 0.84 + 10)) <= 28) {
+        go();
+      }
+    };
+    this.game.canvas.addEventListener('pointerdown', onCanvasPointer);
+    this.events.once('shutdown', () => {
+      this.game.canvas.removeEventListener('pointerdown', onCanvasPointer);
+    });
+
     this.input.keyboard?.on('keydown-SPACE', () => {
+      // Space while typing in a prompt inserts a space; don't start
       if (this.anyPromptFocused()) return;
+      if (document.activeElement === this.playerSelect?.el) return;
+      if (document.activeElement === this.enemySelect?.el) return;
       go();
     });
     this.input.keyboard?.on('keydown-M', () => {

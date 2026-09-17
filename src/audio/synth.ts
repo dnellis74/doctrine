@@ -333,6 +333,14 @@ class Synth {
     this.arpeggio(false);
   }
 
+  tie(): void {
+    if (!this.canPlay()) return;
+    const ctx = this.ctx!;
+    const now = ctx.currentTime;
+    this.noteAt(now, 330, 0.12, 'triangle', 0.14);
+    this.noteAt(now + 0.14, 330, 0.18, 'triangle', 0.12);
+  }
+
   // --- internals ---
 
   private canPlay(): boolean {

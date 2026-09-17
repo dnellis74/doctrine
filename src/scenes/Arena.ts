@@ -71,6 +71,8 @@ export class Arena extends Phaser.Scene {
   private touch: TwinStickInput | null = null;
   private desktop: DesktopInput | null = null;
   private ended = false;
+  /** Someone is at 0 HP — no new orders, wait for in-flight shells to resolve. */
+  private resolving = false;
   private elapsed = 0;
   private wasPlayerReloading = false;
   private debug!: DebugOverlay;
@@ -91,6 +93,7 @@ export class Arena extends Phaser.Scene {
     this.playerPrompt = clampPrompt(data.playerPrompt ?? loadPlayerPrompt());
     this.enemyPrompt = clampPrompt(data.enemyPrompt ?? loadEnemyPrompt());
     this.ended = false;
+    this.resolving = false;
     this.shells = [];
     this.elapsed = 0;
     this.playerLog.clear();
@@ -285,14 +288,24 @@ export class Arena extends Phaser.Scene {
     const dt = Math.min(delta / 1000, 0.05);
     this.elapsed += dt;
 
-    this.refreshLogs();
-    this.tickSide('player');
-    this.tickSide('enemy');
+    if (!this.resolving) {
+      this.refreshLogs();
+      this.tickSide('player');
+      this.tickSide('enemy');
+      this.noteManeuverSounds();
+    } else {
+      // Dead tanks stay put; living tank freezes so only final shells decide
+      this.player.setRelativeDrive(0, 0);
+      this.enemy.setRelativeDrive(0, 0);
+      this.player.setMoveIntent(this.player.hullAngle, 0);
+      this.enemy.setMoveIntent(this.enemy.hullAngle, 0);
+    }
 
     this.player.update(dt);
     this.enemy.update(dt);
 
     if (
+      !this.resolving &&
       this.playerControl === 'human' &&
       this.wasPlayerReloading &&
       !this.player.reloading
@@ -301,7 +314,6 @@ export class Arena extends Phaser.Scene {
     }
     this.wasPlayerReloading = this.player.reloading;
 
-    this.noteManeuverSounds();
     this.updateEngines();
     this.updateShells(dt);
     this.particles.update(dt);
@@ -309,8 +321,17 @@ export class Arena extends Phaser.Scene {
     this.drawSticks();
     this.updateHud();
 
-    if (this.player.health <= 0 || this.enemy.health <= 0) {
-      this.endRound(this.enemy.health <= 0);
+    const playerDead = this.player.health <= 0;
+    const enemyDead = this.enemy.health <= 0;
+
+    if ((playerDead || enemyDead) && !this.resolving) {
+      this.resolving = true;
+    }
+
+    if (this.resolving && this.shells.length === 0) {
+      if (playerDead && enemyDead) this.endRound('tie');
+      else if (enemyDead) this.endRound('win');
+      else this.endRound('lose');
     }
   }
 
@@ -692,13 +713,13 @@ export class Arena extends Phaser.Scene {
     });
   }
 
-  private endRound(won: boolean): void {
+  private endRound(outcome: 'win' | 'lose' | 'tie'): void {
     if (this.ended) return;
     this.ended = true;
     synth.stopEngines();
     this.time.delayedCall(700, () => {
       this.scene.start('Result', {
-        won,
+        outcome,
         playerControl: this.playerControl,
         enemyControl: this.enemyControl,
         playerPrompt: this.playerPrompt,
